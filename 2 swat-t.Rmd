@@ -1,0 +1,66 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+#Script 2
+Runs the models
+
+Loading all the required libraries
+
+```{r}
+library(SWATplusR)
+library(sf)  # Linking to GEOS 3.6.2, GDAL 2.2.3, PROJ 4.9.3
+library(ggplot2)
+library(tidyr)
+library(dplyr)
+
+```
+
+Prepare data to interrogate the model
+
+```{r}
+# Create dataframe with information from the watersheds
+mesos =  data.frame(ID = c("GAV","PIX"), SUB = c(521,326))
+
+# Create dataframe with information from the microwatersheds
+
+micros = data.frame(ID = c("PF","IP","LP","YF","IF","SC"), 
+                    SUB = c(355,302, 273, 259, 109, 528), 
+                    AREA = c(26.81,12.37,63.48,37.32,22.53,45.39))%>%
+  mutate(Area_m2 = AREA*10000 )
+
+```
+
+Loading a SWAT2012 SWAT-T project
+
+```{r}
+path_2012 <- "C:/Veracruz/SWAT/SWATplusR/SWATplusR/Example/sim_swat_t"
+
+q_swatt <- run_swat2012(project_path = path_2012,
+                           output = define_output(file = "rch",
+                                                  variable = "FLOW_OUT",
+                                                  unit = c(521,326,355,302,273,259,109,528)))
+```
+
+Plot observed versus simulated
+
+```{r}
+
+q_swatt %>%
+  select(date, FLOW_OUT_521) %>%
+  rename(q_sim = FLOW_OUT_521) %>%
+  left_join(., q_obs_gav, by = c("date"="Date")) %>%
+  rename(q_obs_gav = Q_m3_s) %>%
+  gather(., key = "variable", value = "discharge", -date)%>%
+  ggplot() + geom_line(aes(x = date, y = discharge, col = variable, lty = variable)) +
+  scale_color_manual(values = c("black", "tomato3")) + labs(x="Date", y="Discharge m^3/S")+
+  theme_bw()
+
+```
+
+
+
+
+
+

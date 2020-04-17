@@ -1,0 +1,279 @@
+
+---
+title: "Python resample discharge"
+output: html_notebook
+---
+
+Script 1
+
+This script reads measured discharge from main outlets and microwatersheds and should be
+run first when starting from scratch.
+
+
+Load Libraries and set the working directory for Python
+
+```{r}
+
+library(tidyr)
+library(dplyr)
+library(ggplot2)
+library(gridExtra)
+library(hydroGOF) 
+library(reticulate) #Allows to use python in R
+use_python("C:/Users/Sergio/AppData/Local/Microsoft/WindowsApps") #Location of python 
+
+
+```
+
+Here we use Python to import and resample the 10 min data measured at the outlets
+
+```{python}
+
+import pandas as pd
+import matplotlib.pyplot as plt
+import os
+import numpy as np
+import datetime
+
+# Read 10 min data from Gavilanes
+
+os.chdir("C:/Veracruz/SWAT/github-rswat-ver/data")
+
+# Read and resample the 10 min data from Gavilanes
+
+q_gav = pd.read_csv("Gavilanes_Q10min.csv",skiprows=0)
+
+q_gav.Date = pd.to_datetime(q_gav.Date)
+
+q_gav.set_index(q_gav["Date"],inplace=True)
+
+q_gav_dd = pd.Series.to_frame(q_gav['Q_m3_s'].resample('D').mean())
+
+q_gav_dd.reset_index(level=0, inplace=True)
+
+# Read and resample the 10 min data from Pixquiac
+
+q_pix = pd.read_csv("Pixquiac_Q10min.csv",skiprows=0)
+
+q_pix.Date = pd.to_datetime(q_pix.Date)
+
+q_pix.set_index(q_pix["Date"],inplace=True)
+
+q_pix_dd = pd.Series.to_frame(q_pix['Q_m3_s'].resample('D').mean())
+
+q_pix_dd.reset_index(level=0, inplace=True)
+
+print(q_pix_dd.head())
+
+```
+
+Import observed variables from Python to R
+
+```{r}
+
+#Import from Python the Q obs main outlets
+q_obs_gav <- py$q_gav_dd%>%
+  mutate(Date =  as.Date(Date))
+
+q_obs_pix <- py$q_pix_dd%>%
+  mutate(Date =  as.Date(Date))
+
+# Import observed q and p from micro-watershed
+obs_micros <- read.csv("C:/Veracruz/SWAT/github-rswat-ver/data/Micros.csv")
+
+```
+
+Estimate FDC of simulated and convert to categorical variables with Python 
+
+```{python}
+
+#Declare the FDC function
+
+def FDC (q):
+    
+    """ This function computes the FDC q is the dataframe column with Q values"""
+    
+    data = np.asarray(q[q.notnull()])
+    
+    data = -np.sort(-data,)
+    
+    name = pd.DataFrame(list(data))
+    
+    name["p"] = (name.index + 1)/(len(name) + 1)
+
+    name.columns = ["q", "p"]
+    
+    return name
+
+
+fdc_sim_PF = FDC((r.q_sim_micros.FLOW_OUT_355))
+fdc_sim_PF = (fdc_sim_PF.groupby(pd.cut(fdc_sim_PF["p"], bins = np.linspace(-0.005, 1.005, 102), labels= np.linspace(0, 1, 101))).mean())[1:-1]
+fdc_sim_PF["p1"] =list(fdc_sim_PF.index)
+
+fdc_sim_IF = FDC(r.q_sim_micros.FLOW_OUT_109)
+fdc_sim_IF = (fdc_sim_IF.groupby(pd.cut(fdc_sim_IF["p"], bins = np.linspace(-0.005, 1.005, 102), labels= np.linspace(0, 1, 101))).mean())[1:-1]
+fdc_sim_IF["p1"] =list(fdc_sim_IF.index)
+
+fdc_sim_IP = FDC(r.q_sim_micros.FLOW_OUT_302)
+fdc_sim_IP = (fdc_sim_IP.groupby(pd.cut(fdc_sim_IP["p"], bins = np.linspace(-0.005, 1.005, 102), labels= np.linspace(0, 1, 101))).mean())[1:-1]
+fdc_sim_IP["p1"] =list(fdc_sim_IP.index)
+
+fdc_sim_SC = FDC(r.q_sim_micros.FLOW_OUT_528)
+fdc_sim_SC = (fdc_sim_SC.groupby(pd.cut(fdc_sim_SC["p"], bins = np.linspace(-0.005, 1.005, 102), labels= np.linspace(0, 1, 101))).mean())[1:-1]
+fdc_sim_SC["p1"] =list(fdc_sim_SC.index)
+
+fdc_sim_LP = FDC(r.q_sim_micros.FLOW_OUT_273)
+fdc_sim_LP = (fdc_sim_LP.groupby(pd.cut(fdc_sim_LP["p"], bins = np.linspace(-0.005, 1.005, 102), labels= np.linspace(0, 1, 101))).mean())[1:-1]
+fdc_sim_LP["p1"] =list(fdc_sim_LP.index)
+
+fdc_sim_YF = FDC(r.q_sim_micros.FLOW_OUT_259)
+fdc_sim_YF = (fdc_sim_YF.groupby(pd.cut(fdc_sim_YF["p"], bins = np.linspace(-0.005, 1.005, 102), labels= np.linspace(0, 1, 101))).mean())[1:-1]
+fdc_sim_YF["p1"] =list(fdc_sim_YF.index)
+
+```
+
+Estimate PBIAS for Q5 and Q95 MICROS
+
+```{r}
+
+FDC_micros <- read.csv("C:/Veracruz/SWAT/SWATplusR/SWATplusR/Observed discharge/results_FDC_surface.csv")
+
+# Estimate Q5 and Q95, compare simulated versus observed using PBIAS
+
+pbias05_PF <- pbias(subset(FDC_micros$X0.05,FDC_micros$names == "PF"), subset(py$fdc_sim_PF$q,py$fdc_sim_PF$p1 == "0.05"))
+pbias95_PF <- pbias(subset(FDC_micros$X0.95,FDC_micros$names == "PF"), subset(py$fdc_sim_PF$q,py$fdc_sim_PF$p1 == "0.95"))
+
+pbias05_IF <- pbias(subset(FDC_micros$X0.05,FDC_micros$names == "IF"), subset(py$fdc_sim_IF$q,py$fdc_sim_IF$p1 == "0.05"))
+pbias95_IF <- pbias(subset(FDC_micros$X0.95,FDC_micros$names == "IF"), subset(py$fdc_sim_IF$q,py$fdc_sim_IF$p1 == "0.95"))
+
+pbias05_IP <- pbias(subset(FDC_micros$X0.05,FDC_micros$names == "HP"), subset(py$fdc_sim_IP$q,py$fdc_sim_IP$p1 == "0.05"))
+pbias95_IP <- pbias(subset(FDC_micros$X0.95,FDC_micros$names == "HP"), subset(py$fdc_sim_IP$q,py$fdc_sim_IP$p1 == "0.95"))
+
+pbias05_SC <- pbias(subset(FDC_micros$X0.05,FDC_micros$names == "C"), subset(py$fdc_sim_SC$q,py$fdc_sim_SC$p1 == "0.05"))
+pbias95_SC <- pbias(subset(FDC_micros$X0.95,FDC_micros$names == "C"), subset(py$fdc_sim_SC$q,py$fdc_sim_SC$p1 == "0.95"))
+
+pbias05_LP <- pbias(subset(FDC_micros$X0.05,FDC_micros$names == "LP"), subset(py$fdc_sim_LP$q,py$fdc_sim_LP$p1 == "0.05"))
+pbias95_LP <- pbias(subset(FDC_micros$X0.95,FDC_micros$names == "LP"), subset(py$fdc_sim_LP$q,py$fdc_sim_LP$p1 == "0.95"))
+
+pbias05_YF <- pbias(subset(FDC_micros$X0.05,FDC_micros$names == "YF"), subset(py$fdc_sim_YF$q,py$fdc_sim_YF$p1 == "0.05"))
+pbias95_YF <- pbias(subset(FDC_micros$X0.95,FDC_micros$names == "YF"), subset(py$fdc_sim_YF$q,py$fdc_sim_YF$p1 == "0.95"))
+
+pbias_micros <- data.frame(matrix(ncol = 3, nrow = 6))
+colnames(pbias_micros) <- c("site", "pbias05", "pbias95")
+pbias_micros[,1] <-c("PF", "IF", "IP","SC","LP","YF")
+pbias_micros$pbias05 <- c(pbias05_PF,pbias05_IF,pbias05_IP, pbias05_SC, pbias05_LP, pbias05_YF)
+pbias_micros$pbias95 <- c(pbias95_PF,pbias95_IF,pbias95_IP, pbias95_SC, pbias95_LP, pbias95_YF)
+write.csv(pbias_micros, "pbias_micros.csv")
+
+```
+
+Convert to categorical variables FDC Gavilanes
+
+```{python}
+
+fdc_gav_obs = FDC(q_gav_dd.Q_m3_s)
+fdc_gav_obs = (fdc_gav_obs.groupby(pd.cut(fdc_gav_obs["p"], bins = np.linspace(-0.005, 1.005, 102), labels= np.linspace(0, 1, 101))).mean())[1:-1]
+fdc_gav_obs["p1"] =list(fdc_gav_obs.index)
+
+fdc_sim_gav = FDC(r.Gav.q_sim)
+fdc_sim_gav = (fdc_sim_gav.groupby(pd.cut(fdc_sim_gav["p"], bins = np.linspace(-0.005, 1.005, 102), labels= np.linspace(0, 1, 101))).mean())[1:-1]
+fdc_sim_gav["p1"] = list(fdc_gav_obs.index)
+
+print(fdc_gav_obs)
+
+```
+
+Estimate PBIAS for Q5 and Q95 MESO
+
+```{r}
+
+# Estimate Q5 and Q95, compare simulated versus observed using PBIAS
+
+pbias <- pbias(py$fdc_gav_obs$q, py$fdc_sim_gav$q)
+
+pbias05 <- pbias(subset(py$fdc_gav_obs$q,py$fdc_gav_obs$p1 == "0.05"), subset(py$fdc_sim_gav$q,py$fdc_sim_gav$p1 == "0.05"))
+
+pbias95 <- pbias(subset(py$fdc_gav_obs$q,py$fdc_gav_obs$p1 == "0.95"), subset(py$fdc_sim_gav$q,py$fdc_sim_gav$p1 == "0.95"))
+
+```
+
+
+```{r}
+
+#Statistics Gavilanes
+
+# Observed from 2015-05-02 to 2016-09-12
+
+q_gav_c <- q_sim_gav[q_sim_gav$date %in% q_obs_gav$Date,]
+
+nse_gav <- NSE(q_gav_c$FLOW_OUT_521,q_obs_gav$Q_m3_s)
+
+r2_gav <- (cor(q_gav_c$FLOW_OUT_521,q_obs_gav$Q_m3_s, method="pearson"))^2
+
+pbias <- pbias(q_gav_c$FLOW_OUT_521, q_obs_gav$Q_m3_s)
+
+```
+
+Make timeseries and FDC plots
+
+```{r}
+
+My_Theme = theme(plot.title = element_text(face = "bold", size= 16),axis.title = element_text(size= 14), 
+                 axis.text = element_text(size = 18), legend.title = element_text(size=16), 
+                 legend.text = element_text(size=16)) + theme_classic(base_size = 16)
+
+
+  a <- ggplot() + geom_line(data=Gav, aes(Date,q_sim, colour="sim")) + 
+    geom_line(data=Gav, aes(Date,q_obs, colour="obs"))+ 
+    theme(legend.position="top") +labs(colour="",x=" Date", y="Discharge m^3/S") + My_Theme
+
+  b <- ggplot() + geom_line(data=py$fdc_sim_gav, aes(p1, q, colour="sim")) + 
+    geom_line(data=py$fdc_gav_obs, aes(p1, q, colour="obs")) + 
+    theme(legend.position="top") + scale_y_continuous(trans="log10") +labs(colour="",x=" Prob. of exceedance", y="Discharge m^3/s") + My_Theme
+  
+
+  
+    c <- ggplot() + geom_line(data=py$fdc_sim_PF, aes(p1,q, colour="sim PF")) + 
+    geom_line(data=obs_micros, aes(P_PF,Q_PF, colour="obs PF"))+ 
+    theme(legend.position="top") + scale_y_continuous(trans="log10") +labs(colour="",x=" Prob. of exceedance",
+       y="Discharge mm/day") + My_Theme
+  
+  d <- ggplot() + geom_line(data=py$fdc_sim_IF, aes(p1,q, colour="sim IF")) + 
+    geom_line(data=obs_micros, aes(P_IF,Q_IF, colour="obs IF"))+ 
+    theme(legend.position="top") + scale_y_continuous(trans="log10") +labs(colour="",x=" Prob. of exceedance",
+       y="Discharge mm/day") + My_Theme
+  
+  e <- ggplot() + geom_line(data=py$fdc_sim_IP, aes(p1,q, colour="sim IP")) + 
+    geom_line(data=obs_micros, aes(P_HP,Q_HP, colour="obs IP"))+ 
+    theme(legend.position="top") + scale_y_continuous(trans="log10") +labs(colour="",x=" Prob. of exceedance",
+       y="Discharge mm/day") + My_Theme
+  
+  f <- ggplot() + geom_line(data=py$fdc_sim_LP, aes(p1,q, colour="sim LP")) + 
+    geom_line(data=obs_micros, aes(P_LP,Q_LP, colour="obs LP"))+ 
+    theme(legend.position="top") + scale_y_continuous(trans="log10") +labs(colour="",x=" Prob. of exceedance",
+       y="Discharge mm/day") + My_Theme
+  
+  g <- ggplot() + geom_line(data=py$fdc_sim_SC, aes(p1,q, colour="sim SC")) + 
+    geom_line(data=obs_micros, aes(P_C,Q_C, colour="obs SC"))+ 
+    theme(legend.position="top") + scale_y_continuous(trans="log10") +labs(colour="",x=" Prob. of exceedance",
+       y="Discharge mm/day") + My_Theme
+  
+  h <- ggplot() + geom_line(data=py$fdc_sim_YF, aes(p1,q, colour="sim YF")) + 
+    geom_line(data=obs_micros, aes(P_YF,Q_YF, colour="obs YF"))+ 
+    theme(legend.position="top") + scale_y_continuous(trans="log10") +labs(colour="",x=" Prob. of exceedance",
+       y="Discharge mm/day") + My_Theme
+  
+
+    ggsave(file="SWAT FDC.png", plot = grid.arrange(c, d, e, f, g, h, ncol=2),scale = 1.5, width = 8, height = 8, dpi = 300)
+  
+
+```
+
+
+
+
+
+
+
+
+

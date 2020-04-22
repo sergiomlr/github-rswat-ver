@@ -1,0 +1,185 @@
+---
+title: "Parameter sensitivity analysis"
+output: html_notebook
+---
+
+Loading R packages
+
+```{r}
+
+library(SWATplusR)
+library(sensitivity)
+library(fast)
+library(hydroGOF)
+library(dplyr)
+library(forcats)
+library(tidyr)
+library(ggplot2)
+library(lhs)
+library(purrr)
+library(lubridate)
+
+
+```
+
+Loading model
+
+```{r}
+# The path where the SWAT project is written
+
+path_2012 <- "C:/Veracruz/SWAT/github-rswat-ver/swat_models/sim_swat_t"
+
+# Daily observed discharge gavilanes outlet (2015-05-02 to 2016-09-12)
+q_obs <- q_obs_gav 
+
+```
+
+#Influential pars in the hydrology of tropical areas.
+
+Manual calibration of LAI growth: 
+r__SOL_ALB().sol                     -0.3   0.3
+r__BLAI{1,2,40,6,12,94}.plant.dat    -0.9   0.9
+r__CANMX.hru                         -0.4   0.4
+
+Calibration based on observed data SD/mean:
+r__SOL_AWC().sol  -0.35  0.35
+r__SOL_K().sol    -0.8   0.8
+r__SOL_Z().sol    -0.3   0.3
+r__CN2.mgt        -0.25  0.25
+
+Arbitrary calibration:
+v__ALPHA_BF.gw    0        1
+v__GW_DELAY.gw    0        650
+v__GW_REVAP.gw    0.02     0.2
+v__GWQMN.gw       0        2000
+v__RCHRG_DP.gw    0        1
+v__REVAPMN.gw     0        500
+v__CH_K2.rte	    5        130
+v__CH_N2.rte	    0        0.3
+v__EPCO.hru       0        1
+v__ESCO.hru       0        1
+r__HRU_SLP.hru    -0.2     0.2
+r__SLSUBBSN.hru   -0.3     0.3
+v__SURLAG.bsn     0        10
+
+# Type of change
+r = ‘relchg’, multiply
+v = “absval”, replace
+a = “abschg”, add 
+    'pctchg', 
+
+Define the parameter names in SWAT2012, these are equal to SWATCUP
+
+```{r}
+par_names <- c("SOL_AWC.sol|change = relchg",
+               "SOL_K.sol|change = relchg",
+               "SOL_Z.sol|change = relchg",
+               "CN2.mgt|change = relchg",
+               "ALPHA_BF.gw|change = absval",
+               "GW_DELAY.gw|change = absval",
+               "GW_REVAP.gw|change = absval",
+               "GWQMN.gw|change = absval",
+               "RCHRG_DP.gw|change = absval",
+               "REVAPMN.gw|change = absval",
+               "CH_K2.rte|change = absval",
+               "CH_N2.rte|change = absval",
+               "EPCO.hru|change = absval",
+               "ESCO.hru|change = absval",
+               "HRU_SLP.hru|change = relchg",
+               "SLSUBBSN.hru|change = relchg",
+               "SURLAG.bsn|change = absval"
+               )
+```
+
+
+#Sensitivity analysis with FAST
+
+The Fourier Amplitude Sensitivity Test (FAST) is a method to perform GSA with few model evaluations
+## Parameter sampling
+```{r}
+#Parameter sampling with the FAST method requires a specific parameter sampling desing, that is avaialble with the fast function fast_parameters()
+
+par_fast <- fast_parameters(
+  minimum = c(-0.35, -0.8, -0.3, -0.25, 0, 0, 0.02, 0, 0, 0, 5, 0, 0, 0, -0.2, -0.3, 0),
+  maximum = c(0.35, 0.8, 0.3, 0.25, 1, 650, 0.2, 2000, 1, 500, 130, 0.3, 1, 1, 0.2, 0.3, 10),
+  names = par_names) %>%
+  as_tibble()
+
+```
+
+## Model simulation and evaluation 
+
+
+To perform a FAST analysis for 17 parameters 1367 model evaluations are required (16 hrs)
+```{r}
+#Model simulation and evaluation, uses 2 cpus with 2 Threads each, total of 4 threads
+
+q_fast <- run_swat2012(project_path = path_2012,
+            output = list(q_out = define_output(file = "rch",
+                                  variable = "FLOW_OUT",
+                                  unit = 15)), # gavilanes = 15, pixquiac = 14
+            parameter = par_fast,
+            start_date = "2014-01-01",
+            end_date = "2017-12-31",
+            years_skip = 1,
+            n_thread = 4)
+```
+
+The model runs are evaluated using the NSE criterion for daily discharge from 2015-05-02 to 2017-04-30
+
+```{r}
+
+#Find the date in q_sim which are present in Date column of q_obs
+
+q_fast_c <- q_fast$simulation$q_out[q_fast$simulation$q_out$date %in% q_obs$Date,]
+
+#Model evaluation
+
+nse_fast <- q_fast_c %>%
+  select(-date) %>%
+  map_dbl(., ~NSE(.x, q_obs$Q_m3_s))
+
+#Nash sutclife
+nse_fast <- q_fast$simulation$q_out%>%
+  subset(date %in% q_obs$Date,)%>% # Subset TRUE when date from sim is dat obs 
+  select(-date)%>% # Apply for each simulation reusing date
+  map_dbl(., ~NSE(., q_obs$Q_m3_s)) # Apply NSE function using q_sim, q_obs
+
+#Coefficient of determination
+r2_fast <- q_fast$simulation$q_out%>%
+  subset(date %in% q_obs$Date,)%>% # Subset TRUE when date from sim is dat obs 
+  select(-date)%>% # Apply for 
+  map_dbl(., ~cor(., q_obs$Q_m3_s, method="pearson")^2) # Apply NSE function using q_sim, q_obs
+
+
+#Statistics 
+
+sens_fast <- sensitivity(nse_fast, 17) # These are the number of parameters
+
+
+```
+
+#Visualization of the FAST sensitivities
+
+We convert the parameter names to factors and sort them according to their sensitivity results using the functionality of the forcats package (Wickham, 2019). We plot the parameter ranking in a barplot using ggplot2 (Wickham, 2016).
+
+```{r}
+
+#higher senstitivities change depending on the statistics of fit
+
+result_fast <- tibble(parameter = q_fast$parameter$definition$par_name,
+                      fast      = sens_fast) %>%
+  mutate(parameter = factor(parameter) %>% fct_reorder(., fast))
+
+
+ggplot(data = result_fast) +
+  geom_bar(aes(x = parameter, y = fast), stat = "identity") +
+  xlab("Parameter") +
+  ylab("Sensitivity") +
+  coord_flip() +
+  theme_bw()+
+  theme(text = element_text(size = 14))
+
+```
+
+

@@ -1,0 +1,230 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+# Script 3 
+
+Calculate statistics of fit and plots for the watersheds
+
+```{r}
+#Change the model name
+q_swatt <- q_swatt
+q_swatt <- q_fast$simulation$q_out%>%
+  select(date,run_0861)
+
+# left join to use only observed data in gavilanes m3/s
+
+gav <- q_obs_gav %>%
+  select(Date, Q_m3_s) %>%
+  rename(q_obs = Q_m3_s)%>%
+  left_join(., q_swatt, by = c("Date"="date")) %>%
+  rename(q_sim = run_0861)%>%
+  select(Date,q_obs,q_sim)
+
+#Extract simulated Q microwatersheds
+
+#q_sim_micros <- q_swatt[4:9]%>%
+#  as.data.frame(t(t(q_sim_micros)*((86400/micros$Area_m2)*1000))) # (60*60*24/A)*1000 convert to mm day-1
+
+```
+
+Statistics gavilanes
+```{r}
+
+#Statistics Gavilanes
+
+print(paste('NSE = ', NSE(gav$q_sim, gav$q_obs)))
+
+print(paste('R^2 =', (cor(gav$q_sim,gav$q_obs, method="pearson"))^2))
+
+print(paste('Pbias = ',pbias(gav$q_sim, gav$q_obs))) 
+
+```
+
+#Use python to estimate FDC and equal number of bins.
+
+
+```{python}
+
+#Declare the FDC function
+
+def FDC (q):
+    
+    """ This function computes the FDC q is the dataframe column with Q values"""
+    
+    data = np.asarray(q[q.notnull()])
+    
+    data = -np.sort(-data,)
+    
+    name = pd.DataFrame(list(data))
+    
+    name["p"] = (name.index + 1)/(len(name) + 1)
+
+    name.columns = ["q", "p"]
+    
+    return name
+
+#Calculates FDC for obs gavilanes
+fdc_gav_obs = FDC(r.gav.q_obs)
+
+#Calculate 99 bins 0.1 - 0.99 obs gavilanes
+fdc_gav_obs = (fdc_gav_obs.groupby(pd.cut(fdc_gav_obs["p"], bins = np.linspace(-0.005, 1.005, 102), labels= np.linspace(0, 1, 101))).mean())[1:-1] 
+fdc_gav_obs["p1"] =list(fdc_gav_obs.index)
+
+#Calculates FDC for sim gavilanes = observed
+fdc_sim_gav = FDC(r.gav.q_sim)
+
+#Calculates bins for sim gavilanes
+fdc_sim_gav = (fdc_sim_gav.groupby(pd.cut(fdc_sim_gav["p"], bins = np.linspace(-0.005, 1.005, 102), labels= np.linspace(0, 1, 101))).mean())[1:-1]
+fdc_sim_gav["p1"] = list(fdc_gav_obs.index)
+
+```
+
+# Compute FDC for simulated
+
+```{python}
+
+#Create empty dataframe
+fdc_sim = pd.DataFrame()
+
+for col in r.q_swatt.columns[1:]:
+  #Apply fdc function
+  fdc = FDC(r.q_swatt[col])
+  #Calculate 99 bins [0.1 - 0.99]
+  fdc = (fdc.groupby(pd.cut(fdc['p'], bins = np.linspace(-0.005, 1.005, 102), labels= np.linspace(0, 1, 101))).mean())[1:-1]
+  # Appends a new column and names it
+  fdc_sim[col] = fdc['q']  
+#Adds the probability
+fdc_sim['p'] = fdc['p']
+
+print(fdc_sim)
+```
+
+Estimate PBIAS for Q5 and Q95 in Gavilanes
+
+```{r}
+
+# Estimate Q5 and Q95, compare simulated versus observed using PBIAS
+
+print(paste("pbias = ", pbias(py$fdc_gav_obs$q, py$fdc_sim_gav$q)))
+print(paste("pbias_05 = ", pbias(subset(py$fdc_gav_obs$q,py$fdc_gav_obs$p1 == "0.05"), subset(py$fdc_sim_gav$q,py$fdc_sim_gav$p1 == "0.05"))))
+print(paste("pbias_95 = ", pbias(subset(py$fdc_gav_obs$q,py$fdc_gav_obs$p1 == "0.95"), subset(py$fdc_sim_gav$q,py$fdc_sim_gav$p1 == "0.95"))))
+
+```
+
+Make timeseries and FDC plots
+
+```{r}
+
+My_Theme = theme(plot.title = element_text(face = "bold", size= 16),axis.title = element_text(size= 14), 
+                 axis.text = element_text(size = 18), legend.title = element_text(size=16), 
+                 legend.text = element_text(size=16)) + theme_classic(base_size = 16)
+
+ggplot() + geom_line(data=gav, aes(Date,q_sim, colour="sim")) + 
+    geom_line(data=gav, aes(Date,q_obs, colour="obs"))+ 
+    theme(legend.position="top") +labs(colour="",x=" Date", y="Discharge m^3/S") + My_Theme
+
+ggplot() + geom_line(data=py$fdc_sim_gav, aes(p1, q, colour="sim")) + 
+    geom_line(data=py$fdc_gav_obs, aes(p1, q, colour="obs")) + 
+    theme(legend.position="top") + scale_y_continuous(trans="log10") +labs(colour="",x=" Prob. of exceedance", y="Discharge m^3/s") + My_Theme
+  
+```
+
+#Plot FDC obs vs sim microwatersheds
+GA = FLOW_OUT_521
+PI = FLOW_OUT_326
+
+PF = FLOW_OUT_355
+IF = FLOW_OUT_109
+IP = FLOW_OUT_302
+LP = FLOW_OUT_273
+SC = FLOW_OUT_528
+YF = FLOW_OUT_259
+
+```{r}
+
+fdc_sim = py$fdc_sim
+
+p <- list() # Empty list of plots
+
+My_Theme = theme(plot.title = element_text(face = "bold", size= 16),axis.title = element_text(size= 14), 
+                 axis.text = element_text(size = 18), legend.title = element_text(size=16), 
+                 legend.text = element_text(size=16)) + theme_classic(base_size = 16)
+
+  p[[1]] <- ggplot() + geom_line(data=fdc_sim, aes(p,FLOW_OUT_355, colour="sim PF")) + 
+    geom_line(data=obs_micros, aes(P_PF,Q_PF, colour="obs PF"))+ 
+    theme(legend.position="top") + scale_y_continuous(trans="log10") +labs(colour="",x=" Prob. of exceedance",
+       y="Discharge mm/day") + My_Theme
+  
+  p[[2]] <- ggplot() + geom_line(data=fdc_sim, aes(p,FLOW_OUT_109, colour="sim IF")) + 
+    geom_line(data=obs_micros, aes(P_IF,Q_IF, colour="obs IF"))+ 
+    theme(legend.position="top") + scale_y_continuous(trans="log10") +labs(colour="",x=" Prob. of exceedance",
+       y="Discharge mm/day") + My_Theme
+  
+  p[[3]] <- ggplot() + geom_line(data=fdc_sim, aes(p,FLOW_OUT_302, colour="sim IP")) + 
+    geom_line(data=obs_micros, aes(P_HP,Q_HP, colour="obs IP"))+ 
+    theme(legend.position="top") + scale_y_continuous(trans="log10") +labs(colour="",x=" Prob. of exceedance",
+       y="Discharge mm/day") + My_Theme
+  
+  p[[4]] <- ggplot() + geom_line(data=fdc_sim, aes(p,FLOW_OUT_273, colour="sim LP")) + 
+    geom_line(data=obs_micros, aes(P_LP,Q_LP, colour="obs LP"))+ 
+    theme(legend.position="top") + scale_y_continuous(trans="log10") +labs(colour="",x=" Prob. of exceedance",
+       y="Discharge mm/day") + My_Theme
+  
+  p[[5]] <- ggplot() + geom_line(data=fdc_sim, aes(p,FLOW_OUT_528, colour="sim SC")) + 
+    geom_line(data=obs_micros, aes(P_C,Q_C, colour="obs SC"))+ 
+    theme(legend.position="top") + scale_y_continuous(trans="log10") +labs(colour="",x=" Prob. of exceedance",
+       y="Discharge mm/day") + My_Theme
+  
+  p[[6]] <- ggplot() + geom_line(data=fdc_sim, aes(p,FLOW_OUT_259, colour="sim YF")) + 
+    geom_line(data=obs_micros, aes(P_YF,Q_YF, colour="obs YF"))+ 
+    theme(legend.position="top") + scale_y_continuous(trans="log10") +labs(colour="",x=" Prob. of exceedance",
+       y="Discharge mm/day") + My_Theme
+
+    ggsave(file="SWAT FDC.png", plot = grid.arrange(p[[1]], p[[2]], p[[3]], p[[4]], p[[5]], p[[6]], ncol=2),scale = 1.5, width = 8, height = 8, dpi = 300)
+  
+```
+
+Estimate PBIAS for Q5 and Q95 microwatersheds
+
+```{r}
+
+
+
+# Estimate Q5 and Q95, compare simulated versus observed using PBIAS
+
+pbias05_PF <- pbias(subset(FDC_micros$X0.05,FDC_micros$names == "PF"), subset(py$fdc_sim_PF$q,py$fdc_sim_PF$p1 == "0.05"))
+pbias95_PF <- pbias(subset(FDC_micros$X0.95,FDC_micros$names == "PF"), subset(py$fdc_sim_PF$q,py$fdc_sim_PF$p1 == "0.95"))
+
+pbias05_IF <- pbias(subset(FDC_micros$X0.05,FDC_micros$names == "IF"), subset(py$fdc_sim_IF$q,py$fdc_sim_IF$p1 == "0.05"))
+pbias95_IF <- pbias(subset(FDC_micros$X0.95,FDC_micros$names == "IF"), subset(py$fdc_sim_IF$q,py$fdc_sim_IF$p1 == "0.95"))
+
+pbias05_IP <- pbias(subset(FDC_micros$X0.05,FDC_micros$names == "HP"), subset(py$fdc_sim_IP$q,py$fdc_sim_IP$p1 == "0.05"))
+pbias95_IP <- pbias(subset(FDC_micros$X0.95,FDC_micros$names == "HP"), subset(py$fdc_sim_IP$q,py$fdc_sim_IP$p1 == "0.95"))
+
+pbias05_SC <- pbias(subset(FDC_micros$X0.05,FDC_micros$names == "C"), subset(py$fdc_sim_SC$q,py$fdc_sim_SC$p1 == "0.05"))
+pbias95_SC <- pbias(subset(FDC_micros$X0.95,FDC_micros$names == "C"), subset(py$fdc_sim_SC$q,py$fdc_sim_SC$p1 == "0.95"))
+
+pbias05_LP <- pbias(subset(FDC_micros$X0.05,FDC_micros$names == "LP"), subset(py$fdc_sim_LP$q,py$fdc_sim_LP$p1 == "0.05"))
+pbias95_LP <- pbias(subset(FDC_micros$X0.95,FDC_micros$names == "LP"), subset(py$fdc_sim_LP$q,py$fdc_sim_LP$p1 == "0.95"))
+
+pbias05_YF <- pbias(subset(FDC_micros$X0.05,FDC_micros$names == "YF"), subset(py$fdc_sim_YF$q,py$fdc_sim_YF$p1 == "0.05"))
+pbias95_YF <- pbias(subset(FDC_micros$X0.95,FDC_micros$names == "YF"), subset(py$fdc_sim_YF$q,py$fdc_sim_YF$p1 == "0.95"))
+
+pbias_micros <- data.frame(matrix(ncol = 3, nrow = 6))
+
+colnames(pbias_micros) <- c("site", "pbias05", "pbias95")
+
+pbias_micros[,1] <-c("PF", "IF", "IP","SC","LP","YF")
+
+pbias_micros$pbias05 <- c(pbias05_PF,pbias05_IF,pbias05_IP, pbias05_SC, pbias05_LP, pbias05_YF)
+pbias_micros$pbias95 <- c(pbias95_PF,pbias95_IF,pbias95_IP, pbias95_SC, pbias95_LP, pbias95_YF)
+write.csv(pbias_micros, "pbias_micros.csv")
+
+```
+
+
+
+
+

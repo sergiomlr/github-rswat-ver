@@ -4,8 +4,10 @@ output: html_notebook
 ---
 
 #Script 2
-Runs the models
+Runs the swat model and conducts a sensitivity analysis of parameters
 
+
+##Running models
 Loading all the required libraries
 
 ```{r}
@@ -35,7 +37,7 @@ micros = data.frame(ID = c("PF","IP","LP","YF","IF","SC"),
 Loading a SWAT2012 SWAT-T project
 
 ```{r}
-path_2012 <- "C:/Veracruz/SWAT/SWATplusR/SWATplusR/Example/sim_swat_t"
+path_2012 <- "C:/Veracruz/SWAT/github-rswat-ver/swat_models/swat_t"
 
 q_swatt <- run_swat2012(project_path = path_2012,
                            output = define_output(file = "rch",
@@ -58,9 +60,5 @@ q_swatt %>%
   theme_bw()
 
 ```
-
-
-
-
 
 

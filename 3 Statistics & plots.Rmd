@@ -11,7 +11,7 @@ Calculate statistics of fit and plots for the watersheds
 #Change the model name
 q_swatt <- q_swatt
 q_swatt <- q_fast$simulation$q_out%>%
-  select(date,run_0861)
+  select(date,run_1211)
 
 # left join to use only observed data in gavilanes m3/s
 
@@ -19,7 +19,7 @@ gav <- q_obs_gav %>%
   select(Date, Q_m3_s) %>%
   rename(q_obs = Q_m3_s)%>%
   left_join(., q_swatt, by = c("Date"="date")) %>%
-  rename(q_sim = run_0861)%>%
+  rename(q_sim = run_1211)%>%
   select(Date,q_obs,q_sim)
 
 #Extract simulated Q microwatersheds

@@ -170,6 +170,54 @@ ggplot(data = result_fast) +
 
 ```
 
+#Running the temPAWN
+
+
+```{r}
+pwn <- tempawn(sim = q_fast)
+
+#Visualization tempPAWN for FDC
+fdc_sim <- pwn$simulation$q_out%>%
+  arrange(., desc(sim_max))%>%
+  mutate(p = seq(0,1, length.out = nrow(.))) # This needs to consider n + 1 
+
+ggplot(fdc_sim) +
+  geom_smooth(aes(x = p, y = sim_min), method = loess) +
+  geom_smooth(aes(x = p, y = sim_max), method = loess) +
+  labs(y = "FDC") +
+  theme_bw() +
+  theme(axis.title.x = element_blank(),
+        axis.text.x = element_blank())
+
+# Visualization of FDC parameters
+fdc_sens<-fdc_sim%>%
+  left_join(., pwn$sensitivity$q_out)%>%
+  select(-date, -sim_min, -sim_max)%>%
+  gather(., key = "Parameter", value = "val", -p)
+
+
+ggplot(fdc_sens) +
+  geom_smooth(aes(x = p, y = val, col = Parameter), method = loess) +
+  # geom_line(aes(x = p, y = val, col = par)) +
+  theme(legend.position = "bottom") +
+  labs(x = "Exceedance probability p", y = "Sensitivity") +
+  theme_bw()
+
+#Group by months
+
+pwn_mon <- pwn$sensitivity$q_out%>%
+  mutate(month = format(date, "%m"))%>%
+  group_by(month)%>%
+  #group_by(month = floor_date(date, "month"))%>%
+  summarize_all(., ~mean(.))%>%
+  pivot_longer(., cols = colnames(pwn_mon[3:20]), names_to ="parameter") # Create a long table
+
+#Plot a lon
+ggplot(pwn_mon,aes(month,parameter,fill=value))+geom_tile()+scale_fill_gradient(low="white", high="tomato")+theme(axis.ticks = element_blank(), 
+        panel.background = element_blank(), 
+        plot.title = element_text(size = 12, colour = "gray50")) 
+
+```
 
  
  

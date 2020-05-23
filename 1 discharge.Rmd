@@ -1,0 +1,115 @@
+
+---
+title: "Python resample discharge"
+output: html_notebook
+---
+
+Script 1
+
+Reads measured discharge from main outlets and microwatersheds and should be
+run first when starting from scratch.
+
+
+Load Libraries and set the working directory for Python 
+
+```{r}
+
+library(tidyr)
+library(dplyr)
+library(ggplot2)
+library(gridExtra)
+library(hydroGOF) 
+library(reticulate) #Allows to use python in R
+use_python("/home/sergio/PycharmProjects/test1/venv/bin/python") #Location of python 
+
+
+```
+
+Here we use Python to import and resample the 10 min data measured at the outlets
+
+```{python}
+#Import packages
+import pandas as pd
+import os
+import numpy as np
+import datetime
+
+# Read 10 min data from Gavilanes
+
+os.chdir("C:/Veracruz/SWAT/github-rswat-ver/data")
+
+# Read and resample the 10 min data from Gavilanes
+
+q_gav = pd.read_csv("Gavilanes_Q10min.csv",skiprows=0)
+
+q_gav.Date = pd.to_datetime(q_gav.Date)
+
+q_gav.set_index(q_gav["Date"],inplace=True)
+
+q_gav_dd = pd.Series.to_frame(q_gav['Q_m3_s'].resample('D').mean())
+
+q_gav_dd.reset_index(level=0, inplace=True)
+
+# Read and resample the 10 min data from Pixquiac
+
+q_pix = pd.read_csv("Pixquiac_Q10min.csv",skiprows=0)
+
+q_pix.Date = pd.to_datetime(q_pix.Date)
+
+q_pix.set_index(q_pix["Date"],inplace=True)
+
+q_pix_dd = pd.Series.to_frame(q_pix['Q_m3_s'].resample('D').mean())
+
+q_pix_dd.reset_index(level=0, inplace=True)
+
+print(q_pix_dd.head())
+
+```
+
+Import observed variables from Python to R
+
+```{r}
+
+#Import from Python the Q obs main outlets
+q_obs_gav <- py$q_gav_dd%>%
+  mutate(Date =  as.Date(Date))
+
+q_obs_pix <- py$q_pix_dd%>%
+  mutate(Date =  as.Date(Date))
+
+# Import observed q and p from micro-watershed
+obs_micros <- read.csv("C:/Veracruz/SWAT/github-rswat-ver/data/Micros.csv")
+
+# Import probabilities of exceedence in microwatersheds
+fdc_micros <- read.csv("C:/Veracruz/SWAT/github-rswat-ver/data/results_FDC_surface.csv")
+
+```
+Import observed files
+
+```{r}
+
+q_obs_gav <-read.csv("/home/sergio/Documents/R/github-rswat-ver/data/q_obs_gav.csv")%>%
+  mutate(Date = as.Date(Date))
+
+#Create a list of summary data for pixquic, contains dataframes
+pix <- list()
+
+#Add observed discharge data
+pix$obs <- read.csv("/home/sergio/Documents/R/github-rswat-ver/data/q_obs_pix.csv")%>%
+  mutate(Date = as.Date(Date))
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+

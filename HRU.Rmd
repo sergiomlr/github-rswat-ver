@@ -1,0 +1,137 @@
+---
+title: "HRU"
+output: html_notebook
+---
+
+```{r}
+# The path where the SWAT project is written
+
+path_2012 <- "/home/sergio/Documents/R/github-rswat-ver/swat_models/TxtInOut"
+
+par_bound <- tibble("CN2.mgt|change = abschg" = c(-15, 15),
+                    "SURLAG.bsn|change = absval"= c(0, 10),
+                    "SOL_AWC.sol|change = relchg"= c(-0.4, 0.4),
+                    "RCHRG_DP.gw|change = absval"= c(0, 1),
+                    "GW_DELAY.gw|change = absval"= c(0, 650),
+                    "ALPHA_BF.gw|change = absval"= c(0, 1),
+                    "CANMX.hru|change = abschg" = c(0, 6),
+                    "ESCO.hru|change = absval" = c(0, 1),
+                    "SOL_K.sol|change = relchg" = c(-0.8, 0.8),
+                    "CH_K2.rte|change = absval"= c(5, 130),
+                    "CH_N2.rte|change = absval"= c(0, 0.3)
+                    )
+
+n_sample <- 2000
+n_par <- ncol(par_bound)
+
+par_pwn <- randomLHS(n = n_sample, k = n_par) %>%
+  as_tibble(., .name_repair = "minimal") %>%
+  map2_df(., par_bound, ~ (.x * (.y[2] - .y[1]) + .y[1])) %>%
+  set_names(names(par_bound))
+
+#HRU codes
+#Mature forest        46 (MF)
+#Pasture              17 (IP)
+#Intermediate forest  10 (IF)
+#Coffee Trianon       66 (CT)
+#Coffee Orduña        58 (CO)
+
+
+#Modeling ET
+library(stringr)
+sim_pwn_hru <- run_swat2012(project_path = path_2012,
+            output = list(q_out = define_output(file = "hru",
+                                  variable = "ET",
+                                  unit = c(46,17,10,66,58))), # gavilanes = 15, pixquiac = 14
+            parameter = par_pwn,
+            start_date = "2014-01-01",
+            end_date = "2017-12-31",
+            years_skip = 1,
+            n_thread = 4)
+
+#Modeling W
+library(stringr)
+sim_pwn_hru_p <- run_swat2012(project_path = path_2012,
+            output = list(q_out = define_output(file = "hru",
+                                  variable = "PRECIP",
+                                  unit = c(46,17,10,66,58))), # gavilanes = 15, pixquiac = 14
+            parameter = par_pwn,
+            start_date = "2014-01-01",
+            end_date = "2017-12-31",
+            years_skip = 1,
+            n_thread = 4)
+sim_pwn_hru <- sim_pwn_hru_p
+
+
+```
+
+#FDC visualization
+
+```{r}
+#subset the q_sim based on q_obs using date gavilanes
+
+HRU <- list()
+
+lp <- 0.25
+up <- 0.75
+
+#Mature forest        46 (MF)
+HRU$MF.ET05 <- apply(sim_pwn_hru$simulation$q_out_46[2:ncol(sim_pwn_hru$simulation$q_out_46)],1 , function(x) quantile(as.numeric(x),lp))
+HRU$MF.ET95 <- apply(sim_pwn_hru$simulation$q_out_46[2:ncol(sim_pwn_hru$simulation$q_out_46)],1 , function(x) quantile(as.numeric(x),up))
+
+#Pasture              17 (IP)
+HRU$IP.ET05 <- apply(sim_pwn_hru$simulation$q_out_17[2:ncol(sim_pwn_hru$simulation$q_out_17)],1 , function(x) quantile(as.numeric(x),lp))
+HRU$IP.ET95 <- apply(sim_pwn_hru$simulation$q_out_17[2:ncol(sim_pwn_hru$simulation$q_out_17)],1 , function(x) quantile(as.numeric(x),up))
+
+#Intermediate forest  10 (IF)
+HRU$IF.ET05 <- apply(sim_pwn_hru$simulation$q_out_10[2:ncol(sim_pwn_hru$simulation$q_out_10)],1 , function(x) quantile(as.numeric(x),lp))
+HRU$IF.ET95 <- apply(sim_pwn_hru$simulation$q_out_10[2:ncol(sim_pwn_hru$simulation$q_out_10)],1 , function(x) quantile(as.numeric(x),up))
+
+#Coffee Trianon       66 (CT)
+HRU$CT.ET05 <- apply(sim_pwn_hru$simulation$q_out_66[2:ncol(sim_pwn_hru$simulation$q_out_66)],1 , function(x) quantile(as.numeric(x),lp))
+HRU$CT.ET95 <- apply(sim_pwn_hru$simulation$q_out_66[2:ncol(sim_pwn_hru$simulation$q_out_66)],1 , function(x) quantile(as.numeric(x),up))
+
+#Coffee Orduña        58 (CO)
+HRU$CO.ET05 <- apply(sim_pwn_hru$simulation$q_out_58[2:ncol(sim_pwn_hru$simulation$q_out_58)],1 , function(x) quantile(as.numeric(x),lp))
+HRU$CO.ET95 <- apply(sim_pwn_hru$simulation$q_out_58[2:ncol(sim_pwn_hru$simulation$q_out_58)],1 , function(x) quantile(as.numeric(x),up))
+
+```
+
+
+```{r}
+
+#Create FDC
+for(i in seq_along(HRU)){
+  HRU[i] <- lapply(HRU[i],sort,decreasing=TRUE)
+  print(lapply(HRU[i],mean))
+  }
+
+HRU$p <- seq(0,1, length.out=length(HRU[[1]]))
+
+# Plot FDC
+HRU <- data.frame(HRU) # works better 
+
+ggplot() + 
+  geom_ribbon(data=HRU, aes(x =p, ymin = CT.ET05, ymax = CT.ET95, fill = 'brown', alpha = 0.8)) +
+  geom_ribbon(data=HRU, aes(x =p, ymin = IF.ET05, ymax = IF.ET95, fill = 'blue', alpha = 0.8)) +
+  geom_ribbon(data=HRU, aes(x =p, ymin = CO.ET05, ymax = CO.ET95, fill = 'grey', alpha = 0.8)) +
+  geom_ribbon(data=HRU, aes(x =p, ymin = IP.ET05, ymax = IP.ET95, fill = 'yellow', alpha = 0.8)) +
+  geom_ribbon(data=HRU, aes(x =p, ymin = MF.ET05, ymax = MF.ET95, fill = 'green', alpha = 0.8)) +
+  xlab('Prob of exceedance') + ylab(' WYLD mm (daily)')+
+  scale_fill_identity(name = 'LC', guide = 'legend',labels = c('IF','CT','MF','CO','IP')) + 
+  My_Theme
+
+
+ggplot() + 
+  geom_line(data=HRU, aes(p, CT.ET05), color = "brown")+
+  geom_line(data=HRU, aes(p, IF.ET05), color = "blue")+
+  geom_line(data=HRU, aes(p, CO.ET05), color = "grey")+
+  geom_line(data=HRU, aes(p, IP.ET05), color = "yellow")+
+  geom_line(data=HRU, aes(p, MF.ET05), color = "green")+
+  xlab('Prob of exceedance') + ylab(' Rainfall mm (daily)')+
+  scale_y_continuous(trans='log2')+
+  My_Theme
+
+```
+
+

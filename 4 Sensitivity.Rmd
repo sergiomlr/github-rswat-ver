@@ -17,6 +17,8 @@ library(ggplot2)
 library(lhs)
 library(purrr)
 library(lubridate)
+library(magrittr)
+library(reshape2)
 
 ```
 
@@ -24,55 +26,242 @@ Loading model
 
 ```{r}
 # The path where the SWAT project is written
-
-path_2012 <- "C:/Veracruz/SWAT/github-rswat-ver/swat_models/sim_swat_t"
-
-# Daily observed discharge gavilanes outlet (2015-05-02 to 2016-09-12)
-q_obs <- q_obs_gav 
+path_2012 <- "C:/Veracruz/SWAT/github-rswat-ver/swat_models/swat_t_canmx"
 
 ```
 
-#Influential pars in the hydrology of tropical areas.
+Import observed files
 
-Manual calibration of LAI growth: 
-r__SOL_ALB().sol                     -0.3   0.3
-r__BLAI{1,2,40,6,12,94}.plant.dat    -0.9   0.9
-r__CANMX.hru                         -0.4   0.4
+```{r}
 
-Calibration based on observed data SD/mean:
-r__SOL_AWC().sol  -0.35  0.35
-r__SOL_K().sol    -0.8   0.8
-r__SOL_Z().sol    -0.3   0.3
-r__CN2.mgt        -0.25  0.25
+#Create a list of summary data for pixquic, contains dataframes
+gav <- list()
+#Add observed discharge data
+gav$obs <- read.csv("C:/Veracruz/SWAT/github-rswat-ver/data/q_obs_gav.csv")%>%
+  mutate(Date = as.Date(Date))
 
-Arbitrary calibration:
-v__ALPHA_BF.gw    0        1
-v__GW_DELAY.gw    0        650
-v__GW_REVAP.gw    0.02     0.2
-v__GWQMN.gw       0        2000
-v__RCHRG_DP.gw    0        1
-v__REVAPMN.gw     0        500
-v__CH_K2.rte	    5        130
-v__CH_N2.rte	    0        0.3
-v__EPCO.hru       0        1
-v__ESCO.hru       0        1
-r__HRU_SLP.hru    -0.2     0.2
-r__SLSUBBSN.hru   -0.3     0.3
-v__SURLAG.bsn     0        10
+
+#Create a list of summary data for pixquic, contains dataframes
+pix <- list()
+#Add observed discharge data
+pix$obs <- read.csv("C:/Veracruz/SWAT/github-rswat-ver/data/q_obs_pix.csv")%>%
+  mutate(Date = as.Date(Date))
+```
+
+Run the manual calibration run
+
+```{r}
+
+q_sim_man <- run_swat2012(project_path = path_2012,
+                           output = define_output(file = "rch",
+                                                  variable = "FLOW_OUT",
+                                                  unit = c(6, 15)))
+
+#Plot gavilanes
+q_sim_man%>%
+  subset(date %in% gav$obs$Date,)%>%
+  ggplot() + geom_line(aes(date,FLOW_OUT_15)) + geom_line(data=gav$obs, aes(Date,Q_m3_s), color = "blue")
+
+#print statistics of fit
+q_sim_man%>%
+  subset(date %in% gav$obs$Date,)%$%
+  print(c("R^2 = ", (cor(FLOW_OUT_15, gav$obs$Q_m3_s))^2,
+          "NSE = ", NSE(FLOW_OUT_15, gav$obs$Q_m3_s),
+          "KGE = ", KGE(FLOW_OUT_15, gav$obs$Q_m3_s),
+          "PBIAS = ", pbias(FLOW_OUT_15, gav$obs$Q_m3_s)))
+
+
+#Plot Pixquiac
+q_sim_man%>%
+  subset(date %in% pix$obs$Date,)%>%
+  ggplot() + geom_line(aes(date,FLOW_OUT_6)) + geom_line(data=pix$obs, aes(Date,Q_m3_s), color = "blue")+
+  geom_line(data=pix$obs, aes(Date, Q_m3_s + 0.56), color = "red")
+
+
+#print statistics of fit
+q_sim_man%>%
+  subset(date %in% pix$obs$Date,)%$%
+  print(c("R^2 = ", (cor(FLOW_OUT_6, pix$obs$Q_m3_s))^2,
+          "NSE = ", NSE(FLOW_OUT_6, pix$obs$Q_m3_s),
+          "KGE = ", KGE(FLOW_OUT_6, pix$obs$Q_m3_s),
+          "PBIAS = ", pbias(FLOW_OUT_6, pix$obs$Q_m3_s)))
+
+```
+
 
 # Type of change
 r = ‘relchg’, multiply
 v = “absval”, replace
 a = “abschg”, add 
-    'pctchg', 
 
-Define the parameter names in SWAT2012, these are equal to SWATCUP
+#Latin Hypercube sampling (15 pars)
 
 ```{r}
+par_bound <- tibble("SOL_AWC.sol|change = relchg" = c(-0.35, 0.35), #Soils 
+               "SOL_K.sol|change = relchg" = c(-0.8, 0.8), # 
+               "ALPHA_BF.gw|change = absval" = c (0, 1), #Groundwater
+               "RCHRG_DP.gw|change = absval" = c(0, 1),
+               "CN2.mgt|change = abschg" = c(-15, 15),
+               "ALPHA_BNK.rte|change = absval" = c(0, 1), # Channels
+               "CH_N2.rte|change = absval" = c(0, 0.3),
+               "CH_K2.rte|change = absval" = c(5, 130),
+               "LAT_TTIME.hru|change = absval" = c(0, 180),
+               "SLSOIL.hru|change = absval" = c(0, 150),
+               "ESCO.hru|change = absval" = c(0, 1),
+               "DEP_IMP.hru|change = absval" = c(0, 6000),
+               "HRU_SLP.hru|change = relchg"= c(-0.2, 0.2),
+               "EPCO.hru|change = absval" = c(0, 1),
+               "GW_DELAY.gw|change = absval"= c(0, 500)
+               )
+
+n_sample <- 3000
+n_par <- ncol(par_bound)
+
+#Latin hypercube sampling
+par_pwn <- randomLHS(n = n_sample, k = n_par) %>%
+  as_tibble(., .name_repair = "minimal") %>%
+  map2_df(., par_bound, ~ (.x * (.y[2] - .y[1]) + .y[1])) %>%
+  set_names(names(par_bound))
+
+
+sim_pwn <- run_swat2012(project_path = path_2012,
+            output = list(q_out = define_output(file = "rch",
+                                  variable = "FLOW_OUT",
+                                  unit = c(6,15))), # gavilanes = 15, pixquiac = 6
+            parameter = par_pwn,
+            start_date = "2014-01-01",
+            end_date = "2017-12-31",
+            years_skip = 1,
+            n_thread = 4)
+
+```
+
+The model runs are evaluated using the R2 and NSE criterion for daily discharge in Gavilanes
+
+```{r}
+#Gavilanes
+
+#Adding results from tempawn to Gavilanes
+gav$sim_pwn <- sim_pwn$simulation$q_out_15[sim_pwn$simulation$q_out_15$date %in% gav$obs$Date,]
+
+#Calculate max and min quantiles 5 and 95 %
+gav$obs$q5 <- apply(gav$sim_pwn[2:ncol(gav$sim_pwn)],1 , function(x) quantile(as.numeric(x),0.05))
+
+gav$obs$q95 <- apply(gav$sim_pwn[2:ncol(gav$sim_pwn)],1 , function(x) quantile(as.numeric(x),0.95))
+
+
+#Calculate max and min quantiles 5 and 95 %
+gav$obs$q5 <- apply(gav$sim_pwn[2:ncol(gav$sim_pwn)],1 , function(x) min(as.numeric(x)))
+
+gav$obs$q95 <- apply(gav$sim_pwn[2:ncol(gav$sim_pwn)],1 , function(x) max(as.numeric(x)))
+
+
+#Nash–Sutcliffe efficiency 
+
+gav$nse <- gav$sim_pwn %>%
+  select(-date) %>%
+  map_dbl(., ~NSE(.x, gav$obs$Q_m3_s))
+
+#Coefficient of determination
+gav$r2 <- gav$sim_pwn%>%
+  select(-date)%>%
+  map_dbl(., ~cor(., gav$obs$Q_m3_s, method="pearson")^2)
+
+# Kling-Gupta efficiency criterion (KGE)
+
+gav$kge <- gav$sim_pwn%>%
+  select(-date)%>%
+  map_dbl(., ~KGE(., gav$obs$Q_m3_s))
+
+```
+
+Visualization of uncertainty Gavilanes watershed
+
+```{r}
+
+#Create a theme
+My_Theme = theme(plot.title = element_text(face = "bold", size= 16),axis.title = element_text(size= 14), 
+                 axis.text = element_text(size = 18), legend.title = element_text(size=16), 
+                 legend.text = element_text(size=16)) + theme_classic(base_size = 16)
+
+#Plot timeseries gavilanes
+ggplot() + geom_ribbon(data=gav$obs, aes(x =Date, ymin = q5, ymax = q95),fill = "green", alpha = .5) +
+  geom_line(data=gav$obs, aes(Date,Q_m3_s, colour="obs")) +
+  geom_line(data=gav$sim_pwn, aes(date,run_0563, colour="best sim"))+
+  theme(legend.position="top") +labs(colour="",x=" Date", y="Discharge m^3/S") + My_Theme
+
+
+#Create flow duration curves
+gav$fdc <- gav$obs%>%
+  arrange(., desc(Q_m3_s))%>%
+  mutate(q5 = sort(gav$obs$q5,decreasing = T))%>%
+  mutate(q95 = sort(gav$obs$q95,decreasing = T))%>%
+  mutate(p = seq(0,1, length.out = nrow(.))) # This needs to consider n + 1 
+
+
+# Plot FDC
+ggplot() + 
+  geom_ribbon(data=gav$fdc, aes(x =p, ymin = q5, ymax = q95, colour = "5-95 PPU" ), fill = "green", alpha = .5) +
+  geom_line(data=gav$fdc, aes(p, Q_m3_s, colour="obs"))+ geom_polygon() +
+  theme(legend.position="top") +labs(colour="",x=" Prob of exceedance", y="Discharge m^3/S") +
+  scale_y_continuous(trans='log2') + My_Theme
+
+
+# Plot Best sim and 1 to 1 line
+plot(gav$obs$Q_m3_s,gav$sim_pwn$run_0563) 
+abline( a= 0, b = 1 , col="blue")
+
+
+print(c("R^2 = ", (cor(gav$sim_pwn$run_0563, gav$obs$Q_m3_s))^2,
+          "NSE = ", NSE(gav$sim_pwn$run_0563, gav$obs$Q_m3_s),
+          "KGE = ", KGE(gav$sim_pwn$run_0563, gav$obs$Q_m3_s),
+          "PBIAS = ", pbias(gav$sim_pwn$run_0563, gav$obs$Q_m3_s)))
+
+```
+
+Select the best paramters using the best 25 simulations according with R2
+
+```{r}
+bestpar <-  list()
+
+bestpar$best25 <- sim_pwn$parameter$values[c(order(gav$nse, decreasing = T)[1:25]),]%>%
+  mutate(sim = order(gav$nse, decreasing=T)[1:25])#subsetting using the best 25 simulations
+
+
+bestpar$min <- apply(bestpar$best25[1:(ncol(bestpar$best25)-1)], 2, min) #Min every column
+bestpar$max <- apply(bestpar$best25[1: (ncol(bestpar$best25)-1)], 2, max)
+
+bestpar$bestsims <- data.frame(gav$sim_pwn[c(0,order(gav$nse, decreasing=T)[1:25])+1])# Including date 1
+
+bestsims <- melt(bestpar$bestsims,  id.vars = 'date', variable.name = 'series') #To long dataframe
+
+# plot on same grid, each series colored differently -- 
+ggplot(bestsims, aes(date,value)) + geom_line(aes(colour = "best 25 sims"))+
+  geom_line(data=gav$obs, aes(Date,Q_m3_s, colour="obs"))
+
+bestpar <- sim_pwn$parameter$values[c(order(gav$nse, decreasing = T)[1:25]),]
+
+res <- cor(bestpar)
+
+library(corrplot)
+corrplot(res, type = "upper", order = "hclust", 
+         tl.col = "black", tl.srt = 45)
+
+
+
+
+
+```
+
+#Fast sensitivity
+
+```{r}
+#Define the parameter names
+
 par_names <- c("SOL_AWC.sol|change = relchg",
                "SOL_K.sol|change = relchg",
                "SOL_Z.sol|change = relchg",
-               "CN2.mgt|change = relchg",
+               "CN2.mgt|change = abschg",
                "ALPHA_BF.gw|change = absval",
                "GW_DELAY.gw|change = absval",
                "GW_REVAP.gw|change = absval",
@@ -85,82 +274,76 @@ par_names <- c("SOL_AWC.sol|change = relchg",
                "ESCO.hru|change = absval",
                "HRU_SLP.hru|change = relchg",
                "SLSUBBSN.hru|change = relchg",
-               "SURLAG.bsn|change = absval"
+               "SURLAG.bsn|change = absval",
+               "CANMX.hru|change = relchg",
+               "GW_SPYLD.gw|change = absval", #New parameters
+               "ALPHA_BNK.rte|change = absval",
+               "LAT_TTIME.hru|change = absval",
+               "SLSOIL.hru|change = absval",
+               "DEP_IMP.hru|change = absval"
                )
-```
 
-#Sensitivity analysis with FAST
-The Fourier Amplitude Sensitivity Test (FAST) is a method to perform GSA with few model evaluations
-## Parameter sampling
-```{r}
-#Parameter sampling with the FAST method requires a specific parameter sampling desing, that is avaialble with the fast function fast_parameters()
+#Parameter sampling with the FAST method
 
 par_fast <- fast_parameters(
-  minimum = c(-0.35, -0.8, -0.3, -0.25, 0, 0, 0.02, 0, 0, 0, 5, 0, 0, 0, -0.2, -0.3, 0),
-  maximum = c(0.35, 0.8, 0.3, 0.25, 1, 650, 0.2, 2000, 1, 500, 130, 0.3, 1, 1, 0.2, 0.3, 10),
+  minimum = c(-0.35, -0.5, -0.3, -15, 0, 0, 0.02, 0, 0, 0, 5, 0, 0, 0, -0.2, -0.3, 0,-0.3,0, 0, 0, 0, 0),
+  maximum = c(0.35, 0.5, 0.3, 15, 1, 650, 0.2, 2000, 1, 500, 130, 0.3, 1, 1, 0.2, 0.3, 10, 0.3, 0.4, 1, 180, 150, 6000),
   names = par_names) %>%
   as_tibble()
 
-```
 
-## Model simulation and evaluation 
-
-To perform a FAST analysis for 17 parameters 1367 model evaluations are required (16 hrs)
-```{r}
-#Model simulation and evaluation, uses 2 cpus with 2 Threads each, total of 4 threads
-
+#Model simulation and evaluation
 q_fast <- run_swat2012(project_path = path_2012,
             output = list(q_out = define_output(file = "rch",
                                   variable = "FLOW_OUT",
-                                  unit = 15)), # gavilanes = 15, pixquiac = 14
+                                  unit = c(6,15))), # gavilanes = 15, pixquiac = 6
             parameter = par_fast,
             start_date = "2014-01-01",
             end_date = "2017-12-31",
             years_skip = 1,
             n_thread = 4)
+
 ```
 
-The model runs are evaluated using the NSE criterion for daily discharge from 2015-05-02 to 2017-04-30
+Fast sensitivity Gavilanes
 
 ```{r}
+#Gavilanes
 
-#Find the date in q_sim which are present in Date column of q_obs
-q_fast_c <- q_fast$simulation$q_out[q_fast$simulation$q_out$date %in% q_obs$Date,]
+#Adding results from fast to Gavilanes
+gav$sim_fast <- q_fast$simulation$q_out_15[q_fast$simulation$q_out_15$date %in% gav$obs$Date,]
 
-#Model evaluation
-nse_fast <- q_fast_c %>%
+
+#Nash Sutclife
+gav$nse_fast <- gav$sim_fast %>%
   select(-date) %>%
-  map_dbl(., ~NSE(.x, q_obs$Q_m3_s))
-
-#Nash sutclife
-nse_fast <- q_fast$simulation$q_out%>%
-  subset(date %in% q_obs$Date,)%>% # Subset TRUE when date from sim is dat obs 
-  select(-date)%>% # Apply for each simulation reusing date
-  map_dbl(., ~NSE(., q_obs$Q_m3_s)) # Apply NSE function using q_sim, q_obs
+  map_dbl(., ~NSE(.x, gav$obs$Q_m3_s))
 
 #Coefficient of determination
-r2_fast <- q_fast$simulation$q_out%>%
-  subset(date %in% q_obs$Date,)%>% # Subset TRUE when date from sim is dat obs 
-  select(-date)%>% # Apply for 
-  map_dbl(., ~cor(., q_obs$Q_m3_s, method="pearson")^2) # Apply NSE function using q_sim, q_obs
 
-#Statistics 
-sens_fast <- sensitivity(r2_fast, 17) # These are the number of parameters
+gav$r2_fast <- gav$sim_fast%>%
+  select(-date)%>%
+  map_dbl(., ~cor(., gav$obs$Q_m3_s, method="pearson")^2)
 
-```
+# Kling-Gupta efficiency criterion (KGE)
 
-#Visualization of the FAST sensitivities
+gav$kge_fast <- gav$sim_fast%>%
+  select(-date)%>%
+  map_dbl(., ~KGE(., gav$obs$Q_m3_s))
 
-We convert the parameter names to factors and sort them according to their sensitivity results using the functionality of the forcats package (Wickham, 2019). We plot the parameter ranking in a barplot using ggplot2 (Wickham, 2016).
 
-```{r}
+#Sensitivity using different statistics of fit
+q_fast$sens.nse.gav <- sensitivity(gav$nse_fast, 23) # These are the number of parameters
+q_fast$sens.r2.gav <- sensitivity(gav$r2_fast, 23) # These are the number of parameters
+q_fast$sens.kge.gav <- sensitivity(gav$kge_fast, 23) # These are the number of parameters
 
 #higher senstitivities change depending on the statistics of fit
-result_fast <- tibble(parameter = q_fast$parameter$definition$par_name,
-                      fast      = sens_fast) %>%
+q_fast$result.gav <- tibble(parameter = q_fast$parameter$definition$par_name,
+                      fast      = q_fast$sens.kge.gav) %>%
   mutate(parameter = factor(parameter) %>% fct_reorder(., fast))
 
-ggplot(data = result_fast) +
+
+ggplot(data = q_fast$result.gav) +
   geom_bar(aes(x = parameter, y = fast), stat = "identity") +
   xlab("Parameter") +
   ylab("Sensitivity") +
@@ -168,54 +351,28 @@ ggplot(data = result_fast) +
   theme_bw()+
   theme(text = element_text(size = 14))
 
+
 ```
 
-#Running the temPAWN
 
+Select the best paramters using the best 25 simulations according with R2
 
 ```{r}
-pwn <- tempawn(sim = q_fast)
+bestpar <-  list()
 
-#Visualization tempPAWN for FDC
-fdc_sim <- pwn$simulation$q_out%>%
-  arrange(., desc(sim_max))%>%
-  mutate(p = seq(0,1, length.out = nrow(.))) # This needs to consider n + 1 
+bestpar$best25 <- q_fast$parameter$values[c(order(gav$nse_fast)[1:25]),]%>%
+  mutate(sim = order(gav$nse_fast)[1:25])#subsetting using the best 20 simulations
 
-ggplot(fdc_sim) +
-  geom_smooth(aes(x = p, y = sim_min), method = loess) +
-  geom_smooth(aes(x = p, y = sim_max), method = loess) +
-  labs(y = "FDC") +
-  theme_bw() +
-  theme(axis.title.x = element_blank(),
-        axis.text.x = element_blank())
+bestpar$min <- apply(bestpar$best25[1:(ncol(bestpar$best25)-1)], 2, min) #Min every column
+bestpar$max <- apply(bestpar$best25[1: (ncol(bestpar$best25)-1)], 2, max)
 
-# Visualization of FDC parameters
-fdc_sens<-fdc_sim%>%
-  left_join(., pwn$sensitivity$q_out)%>%
-  select(-date, -sim_min, -sim_max)%>%
-  gather(., key = "Parameter", value = "val", -p)
+```
+
+Reducing the universe of plausible non unique parameter sets with multiple contraints
+
+```{r}
 
 
-ggplot(fdc_sens) +
-  geom_smooth(aes(x = p, y = val, col = Parameter), method = loess) +
-  # geom_line(aes(x = p, y = val, col = par)) +
-  theme(legend.position = "bottom") +
-  labs(x = "Exceedance probability p", y = "Sensitivity") +
-  theme_bw()
-
-#Group by months
-
-pwn_mon <- pwn$sensitivity$q_out%>%
-  mutate(month = format(date, "%m"))%>%
-  group_by(month)%>%
-  #group_by(month = floor_date(date, "month"))%>%
-  summarize_all(., ~mean(.))%>%
-  pivot_longer(., cols = colnames(pwn_mon[3:20]), names_to ="parameter") # Create a long table
-
-#Plot a lon
-ggplot(pwn_mon,aes(month,parameter,fill=value))+geom_tile()+scale_fill_gradient(low="white", high="tomato")+theme(axis.ticks = element_blank(), 
-        panel.background = element_blank(), 
-        plot.title = element_text(size = 12, colour = "gray50")) 
 
 ```
 

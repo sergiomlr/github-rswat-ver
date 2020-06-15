@@ -128,6 +128,8 @@ ggplot() + geom_line(data=gav, aes(Date,q_sim, colour="sim")) +
 ggplot() + geom_line(data=py$fdc_sim_gav, aes(p1, q, colour="sim")) + 
     geom_line(data=py$fdc_gav_obs, aes(p1, q, colour="obs")) + 
     theme(legend.position="top") + scale_y_continuous(trans="log10") +labs(colour="",x=" Prob. of exceedance", y="Discharge m^3/s") + My_Theme
+
+plot()
   
 ```
 

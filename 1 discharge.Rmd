@@ -22,7 +22,6 @@ library(hydroGOF)
 library(reticulate) #Allows to use python in R
 use_python("C:/Users/Sergio/AppData/Local/Microsoft/WindowsApps") #Location of python 
 
-
 ```
 
 Here we use Python to import and resample the 10 min data measured at the outlets
@@ -50,6 +49,8 @@ q_gav_dd = pd.Series.to_frame(q_gav['Q_m3_s'].resample('D').mean())
 
 q_gav_dd.reset_index(level=0, inplace=True)
 
+q_gav_dd.to_csv("C:/Veracruz/SWAT/github-rswat-ver/data/q_obs_gav.csv")
+
 # Read and resample the 10 min data from Pixquiac
 
 q_pix = pd.read_csv("Pixquiac_Q10min.csv",skiprows=0)
@@ -58,25 +59,20 @@ q_pix.Date = pd.to_datetime(q_pix.Date)
 
 q_pix.set_index(q_pix["Date"],inplace=True)
 
-q_pix_dd = pd.Series.to_frame(q_pix['Q_m3_s'].resample('D').mean())
+q_pix_dd = pd.Series.to_frame(q_pix['Q_m3_s'].resample('D').mean()).fillna(method="ffill", axis=0) # This needs the axis
 
 q_pix_dd.reset_index(level=0, inplace=True)
 
-print(q_pix_dd.head())
+q_pix_dd.isnull().any() # Explore if NULL values are present
+
+q_pix_dd.to_csv("C:/Veracruz/SWAT/github-rswat-ver/data/q_obs_pix.csv")
 
 ```
+
 
 Import observed variables from Python to R
 
 ```{r}
-
-#Import from Python the Q obs main outlets
-q_obs_gav <- py$q_gav_dd%>%
-  mutate(Date =  as.Date(Date))
-
-q_obs_pix <- py$q_pix_dd%>%
-  mutate(Date =  as.Date(Date))
-
 # Import observed q and p from micro-watershed
 obs_micros <- read.csv("C:/Veracruz/SWAT/github-rswat-ver/data/Micros.csv")
 

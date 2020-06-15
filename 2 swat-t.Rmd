@@ -37,12 +37,24 @@ micros = data.frame(ID = c("PF","IP","LP","YF","IF","SC"),
 Loading a SWAT2012 SWAT-T project
 
 ```{r}
-path_2012 <- "C:/Veracruz/SWAT/github-rswat-ver/swat_models/swat_t"
+path_2012 <- "C:/Veracruz/SWAT/github-rswat-ver/swat_models/sim_swat_t"
 
 q_swatt <- run_swat2012(project_path = path_2012,
                            output = define_output(file = "rch",
                                                   variable = "FLOW_OUT",
                                                   unit = c(521,326,355,302,273,259,109,528)))
+
+
+q_swatt_hru <- run_swat2012(project_path = path_2012,
+                           output = define_output(file = "hru",
+                                                  variable = "ETmm",
+                                                  unit = c(46,17,10,66,58)))
+
+q_swatt_hru <- run_swat2012(project_path = path_2012,
+                           output = define_output(file = "rch",
+                                                  variable = "FLOW_OUT",
+                                                  unit = 15))
+
 ```
 
 Plot observed versus simulated

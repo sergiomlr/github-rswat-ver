@@ -1,0 +1,219 @@
+---
+title: "TEMPAWN"
+output: html_notebook
+---
+
+Loading R packages
+
+```{r}
+
+library(SWATplusR)
+library(sensitivity)
+library(fast)
+library(hydroGOF)
+library(dplyr)
+library(forcats)
+library(tidyr)
+library(ggplot2)
+library(lhs)
+library(purrr)
+library(lubridate)
+
+#Load temPAWN
+library(temPAWN)
+
+```
+
+Loading model
+
+```{r}
+# The path where the SWAT project is written
+
+path_2012 <- "/home/sergio/Documents/R/github-rswat-ver/swat_models/TxtInOut"
+
+# Daily observed discharge gavilanes outlet (2015-05-02 to 2016-09-12)
+q_obs <- q_obs_gav 
+
+# Daily observed discharge pixquiac outlet (2015-09-17 to 2016-08-14)
+pix$obs
+
+```
+
+Running the model
+
+```{r}
+par_bound <- tibble("CN2.mgt|change = abschg" = c(-15, 15),
+                    "SURLAG.bsn|change = absval"= c(0, 10),
+                    "SOL_AWC.sol|change = relchg"= c(-0.4, 0.4),
+                    "RCHRG_DP.gw|change = absval"= c(0, 1),
+                    "GW_DELAY.gw|change = absval"= c(0, 650),
+                    "ALPHA_BF.gw|change = absval"= c(0, 1),
+                    "CANMX.hru|change = abschg" = c(0, 6),
+                    "ESCO.hru|change = absval" = c(0, 1),
+                    "SOL_K.sol|change = relchg" = c(-0.8, 0.8),
+                    "CH_K2.rte|change = absval"= c(5, 130),
+                    "CH_N2.rte|change = absval"= c(0, 0.3)
+                    )
+
+n_sample <- 2000
+n_par <- ncol(par_bound)
+
+#Latin hypercube sampling
+par_pwn <- randomLHS(n = n_sample, k = n_par) %>%
+  as_tibble(., .name_repair = "minimal") %>%
+  map2_df(., par_bound, ~ (.x * (.y[2] - .y[1]) + .y[1])) %>%
+  set_names(names(par_bound))
+
+sim_pwn <- run_swat2012(project_path = path_2012,
+            output = list(q_out = define_output(file = "rch",
+                                  variable = "FLOW_OUT",
+                                  unit = c(14,15))), # gavilanes = 15, pixquiac = 14
+            parameter = par_pwn,
+            start_date = "2014-01-01",
+            end_date = "2017-12-31",
+            years_skip = 1,
+            n_thread = 4)
+
+
+library(stringr) # Required to run SWAT with HRU outputs
+sim_pwn_hru <- run_swat2012(project_path = path_2012,
+            output = list(q_out = define_output(file = "hru",
+                                  variable = "ET",
+                                  unit = c(46,17,10,66,58))), # gavilanes = 15, pixquiac = 14
+            parameter = par_pwn,
+            start_date = "2014-01-01",
+            end_date = "2017-12-31",
+            years_skip = 1,
+            n_thread = 4)
+
+```
+
+Gavilanes 
+The model runs are evaluated using the NSE criterion for daily discharge from 2015-05-02 to 2017-04-30
+
+```{r}
+
+#GAVILANES
+#subset the q_sim based on q_obs using date gavilanes
+q_lhc_g <- sim_pwn$simulation$q_out_15[sim_pwn$simulation$q_out_15$date %in% q_obs$Date,]
+
+gav$q5 <- apply(q_lhc_g[2:ncol(q_lhc_g)],1 , function(x) quantile(as.numeric(x),0.05))
+gav$q95 <- apply(q_lhc_g[2:ncol(q_lhc_g)],1 , function(x) quantile(as.numeric(x),0.95))
+
+#Nash sutclife
+nse_lhc_g <- q_lhc_g %>%
+  select(-date) %>%
+  map_dbl(., ~NSE(.x, q_obs$Q_m3_s))
+
+#Coefficient of determination
+
+r2_lhc_g <- q_lhc_g %>%
+  select(-date) %>%
+  map_dbl(., ~cor(., q_obs$Q_m3_s, method="pearson")^2) # Apply NSE function using q_sim, q_obs
+
+#PIXQUIAC
+#Adding results from tempawn to Pixquiac
+pix$sim_pwn <- sim_pwn$simulation$q_out_14[sim_pwn$simulation$q_out_14$date %in% pix$obs$Date,]
+
+#Calculate max and min quantiles 5 and 95 %
+pix$obs$q5 <- apply(pix$sim_pwn[2:ncol(pix$sim_pwn)],1 , function(x) quantile(as.numeric(x),0.05))
+pix$obs$q95 <- apply(pix$sim_pwn[2:ncol(pix$sim_pwn)],1 , function(x) quantile(as.numeric(x),0.95))
+
+#Coefficient of determination
+
+pix$nse <- pix$sim_pwn %>%
+  select(-date) %>%
+  map_dbl(., ~NSE(.x, pix$obs$Q_m3_s))
+
+```
+
+#Visualization of with the PAWN method
+
+```{r}
+#Create a copy of the sim_pwn
+sim_pwn.g <- sim_pwn[c(1,2)] 
+#Remove pixquiac results
+sim_pwn.g$simulation$q_out_14 <- NULL 
+
+#Create a copy of the sim_pwn
+sim_pwn.p <- sim_pwn[c(1,2)] 
+#Remove pixquiac results
+sim_pwn.p$simulation$q_out_15 <- NULL 
+
+#Run pwn
+pwn.p <- tempawn(sim = sim_pwn.p)
+
+#Group by months
+pwn_mon <- pwn.p$sensitivity$q_out_14%>%
+  mutate(month = format(date, "%m"))%>%
+  group_by(month)%>%
+  summarize_all(., ~mean(.))%>%
+  pivot_longer(., cols = colnames(pwn_mon[3:ncol(.)]), names_to ="parameter") # Create a long table
+
+#Plot
+ggplot(pwn_mon,aes(month,parameter,fill=value))+geom_tile()+scale_fill_gradient(low="white", high="tomato")+theme(axis.ticks = element_blank(), 
+        panel.background = element_blank(), 
+        plot.title = element_text(size = 12, colour = "gray50")) 
+
+```
+
+Visualization of Gavilanes watershed
+
+```{r}
+#Visualization tempPAWN for FDC
+fdc_temp <- fdc(gav$q_obs)
+
+#Create a theme
+My_Theme = theme(plot.title = element_text(face = "bold", size= 16),axis.title = element_text(size= 14), 
+                 axis.text = element_text(size = 18), legend.title = element_text(size=16), 
+                 legend.text = element_text(size=16)) + theme_classic(base_size = 16)
+
+#Plot timeseries gavilanes
+ggplot() + geom_ribbon(data=gav, aes(x =Date, ymin = q5, ymax = q95),fill = "green", alpha = .5) +
+  geom_line(data=gav, aes(Date,q_obs, colour="obs")) +
+  geom_line(data=gav, aes(Date,q_sim, colour="best sim"))+
+  theme(legend.position="top") +labs(colour="",x=" Date", y="Discharge m^3/S") + My_Theme
+
+#Create FDC for Gavilanes
+fdc_gav <- gav%>%
+  arrange(., desc(q95))%>%
+  mutate(q5 = sort(gav$q5,decreasing = T))%>%
+  mutate(q_obs = sort(gav$q_obs,decreasing = T))%>%
+  mutate(p = seq(0,1, length.out = nrow(.))) # This needs to consider n + 1 
+
+# Plot FDC
+ggplot() + 
+  geom_ribbon(data=fdc_gav, aes(x =p, ymin = q5, ymax = q95, colour = "5-95 PPU" ), fill = "green", alpha = .5) +
+  geom_line(data=fdc_gav, aes(p, q_obs, colour="obs"))+ geom_polygon() +
+  theme(legend.position="top") +labs(colour="",x=" Prob of exceedance", y="Discharge m^3/S") +
+  scale_y_continuous(trans='log2') + My_Theme
+
+```
+
+
+Visualization of Pixquiac watershed
+
+```{r}
+
+#Create flow duration curves
+pix$fdc <- pix$obs%>%
+  arrange(., desc(Q_m3_s))%>%
+  mutate(q5 = sort(pix$q5,decreasing = T))%>%
+  mutate(q95 = sort(pix$q95,decreasing = T))%>%
+  mutate(p = seq(0,1, length.out = nrow(.))) # This needs to consider n + 1 
+
+#Plot timeseries
+ggplot() + geom_ribbon(data=pix$obs, aes(x =Date, ymin = q5, ymax = q95),fill = "green", alpha = .5) +
+  geom_line(data=pix$obs, aes(Date,Q_m3_s, colour="obs"))+
+  theme(legend.position="top") +labs(colour="",x=" Date", y="Discharge m^3/S")+
+  ylim(0,50)+ My_Theme
+
+# Plot FDC
+ggplot() + 
+  geom_ribbon(data = pix$fdc, aes(x = p, ymin = q5, ymax = q95), fill = "green", alpha = .5) +
+  geom_line(data=pix$fdc, aes(p, Q_m3_s, colour="obs"))+
+  theme(legend.position="top") +labs(colour="",x=" Prob of exceedance", y="Discharge m^3/S") +
+  scale_y_continuous(trans='log2') + My_Theme
+
+```
+

@@ -1,0 +1,280 @@
+---
+title: "Parameter sensitivity analysis"
+output: html_notebook
+---
+
+Loading R packages
+
+```{r}
+library(SWATplusR)
+library(sensitivity)
+library(fast)
+library(hydroGOF)
+library(dplyr)
+library(forcats)
+library(tidyr)
+library(ggplot2)
+library(lhs)
+library(purrr)
+library(lubridate)
+```
+
+Loading model
+
+```{r}
+# The path where the SWAT project is written
+path_2012 <- "C:/Veracruz/SWAT/github-rswat-ver/swat_models/swat_t_canmx"
+
+```
+
+Import observed files
+
+```{r}
+
+#Create a list of summary data for pixquic, contains dataframes
+gav <- list()
+#Add observed discharge data
+gav$obs <- read.csv("C:/Veracruz/SWAT/github-rswat-ver/data/q_obs_gav.csv")%>%
+  mutate(Date = as.Date(Date))
+
+
+#Create a list of summary data for pixquic, contains dataframes
+pix <- list()
+#Add observed discharge data
+pix$obs <- read.csv("C:/Veracruz/SWAT/github-rswat-ver/data/q_obs_pix.csv")%>%
+  mutate(Date = as.Date(Date))
+```
+
+Run the manual calibration run
+
+```{r}
+
+
+q_sim_man <- run_swat2012(project_path = path_2012,
+                           output = define_output(file = "rch",
+                                                  variable = "FLOW_OUT",
+                                                  unit = c(6, 15)))
+
+```
+
+
+
+
+
+
+# Type of change
+r = ‘relchg’, multiply
+v = “absval”, replace
+a = “abschg”, add 
+
+#Define the parameter and ranges using Latin Hypercube sampling
+
+
+
+
+
+```{r}
+par_bound <- tibble("SOL_AWC.sol|change = relchg" = c(-0.35, 0.35),
+               "SOL_K.sol|change = relchg" = c(-0.8, 0.8),
+               "SOL_Z.sol|change = relchg" = c(-0.3, 0.3),
+               "ALPHA_BF.gw|change = absval" = c (0.01, 0.3), # Slow response
+               "GW_DELAY.gw|change = absval" = c(0, 700),
+               "GW_REVAP.gw|change = absval" = c(0.02, 0.3), #Was increaesed
+               "GWQMN.gw|change = absval" = c (0, 2000), #Was reduced
+               "RCHRG_DP.gw|change = absval" = c(0, 1),
+               "REVAPMN.gw|change = absval" = c(0, 500),
+               "CANMX.hru|change = relchg" = c(-0.25, 0.25),
+               "ESCO.hru|change = absval" = c(0, 1),
+               "CN2.mgt|change = abschg" = c(-15, 15),
+               "SURLAG.bsn|change = absval" = c(0, 10)
+               )
+
+n_sample <- 4000
+n_par <- ncol(par_bound)
+
+#Latin hypercube sampling
+par_pwn <- randomLHS(n = n_sample, k = n_par) %>%
+  as_tibble(., .name_repair = "minimal") %>%
+  map2_df(., par_bound, ~ (.x * (.y[2] - .y[1]) + .y[1])) %>%
+  set_names(names(par_bound))
+
+
+sim_pwn <- run_swat2012(project_path = path_2012,
+            output = list(q_out = define_output(file = "rch",
+                                  variable = "FLOW_OUT",
+                                  unit = c(6,15))), # gavilanes = 15, pixquiac = 6
+            parameter = par_pwn,
+            start_date = "2014-01-01",
+            end_date = "2017-12-31",
+            years_skip = 1,
+            n_thread = 4)
+
+```
+
+The model runs are evaluated using the R2 and NSE criterion for daily discharge in Gavilanes
+
+```{r}
+#Gavilanes
+
+#Adding results from tempawn to Gavilanes
+gav$sim_pwn <- sim_pwn$simulation$q_out_15[sim_pwn$simulation$q_out_15$date %in% gav$obs$Date,]
+
+
+#Calculate max and min quantiles 5 and 95 %
+gav$obs$q5 <- apply(gav$sim_pwn[2:ncol(gav$sim_pwn)],1 , function(x) quantile(as.numeric(x),0.05))
+
+gav$obs$q95 <- apply(gav$sim_pwn[2:ncol(gav$sim_pwn)],1 , function(x) quantile(as.numeric(x),0.95))
+
+#Nash Sutclife
+gav$nse <- gav$sim_pwn %>%
+  select(-date) %>%
+  map_dbl(., ~NSE(.x, gav$obs$Q_m3_s))
+
+#Coefficient of determination
+
+gav$r2 <- gav$sim_pwn%>%
+  select(-date)%>%
+  map_dbl(., ~cor(., gav$obs$Q_m3_s, method="pearson")^2)
+
+
+
+
+
+
+r2_fast <- q_fast$simulation$q_out%>%
+  subset(date %in% q_obs$Date,)%>% # Subset TRUE when date from sim is dat obs 
+  select(-date)%>% # Apply for 
+  map_dbl(., ~cor(., q_obs$Q_m3_s, method="pearson")^2) # Apply NSE function using q_sim, q_obs
+
+```
+
+Visualization of Gavilanes watershed
+
+```{r}
+
+#Create a theme
+My_Theme = theme(plot.title = element_text(face = "bold", size= 16),axis.title = element_text(size= 14), 
+                 axis.text = element_text(size = 18), legend.title = element_text(size=16), 
+                 legend.text = element_text(size=16)) + theme_classic(base_size = 16)
+
+#Plot timeseries gavilanes
+ggplot() + geom_ribbon(data=gav$obs, aes(x =Date, ymin = q5, ymax = q95),fill = "green", alpha = .5) +
+  geom_line(data=gav$obs, aes(Date,Q_m3_s, colour="obs")) +
+  geom_line(data=gav$sim_pwn, aes(date,run_0470, colour="best sim"))+
+  theme(legend.position="top") +labs(colour="",x=" Date", y="Discharge m^3/S") + My_Theme
+
+
+#Create flow duration curves
+gav$fdc <- gav$obs%>%
+  arrange(., desc(Q_m3_s))%>%
+  mutate(q5 = sort(gav$obs$q5,decreasing = T))%>%
+  mutate(q95 = sort(gav$obs$q95,decreasing = T))%>%
+  mutate(p = seq(0,1, length.out = nrow(.))) # This needs to consider n + 1 
+
+
+# Plot FDC
+ggplot() + 
+  geom_ribbon(data=gav$fdc, aes(x =p, ymin = q5, ymax = q95, colour = "5-95 PPU" ), fill = "green", alpha = .5) +
+  geom_line(data=gav$fdc, aes(p, Q_m3_s, colour="obs"))+ geom_polygon() +
+  theme(legend.position="top") +labs(colour="",x=" Prob of exceedance", y="Discharge m^3/S") +
+  scale_y_continuous(trans='log2') + My_Theme
+
+
+
+```
+
+
+Fast sensitivity
+
+```{r}
+#Define the parameter names
+
+par_names <- c("SOL_AWC.sol|change = relchg",
+               "SOL_K.sol|change = relchg",
+               "SOL_Z.sol|change = relchg",
+               "CN2.mgt|change = abschg",
+               "ALPHA_BF.gw|change = absval",
+               "GW_DELAY.gw|change = absval",
+               "GW_REVAP.gw|change = absval",
+               "GWQMN.gw|change = absval",
+               "RCHRG_DP.gw|change = absval",
+               "REVAPMN.gw|change = absval",
+               "CH_K2.rte|change = absval",
+               "CH_N2.rte|change = absval",
+               "EPCO.hru|change = absval",
+               "ESCO.hru|change = absval",
+               "HRU_SLP.hru|change = relchg",
+               "SLSUBBSN.hru|change = relchg",
+               "SURLAG.bsn|change = absval",
+               "CANMX.hru|change = relchg"
+               )
+
+#Parameter sampling with the FAST method
+
+par_fast <- fast_parameters(
+  minimum = c(-0.35, -0.5, -0.3, -15, 0, 0, 0.02, 0, 0, 0, 5, 0, 0, 0, -0.2, -0.3, 0,-0.3),
+  maximum = c(0.35, 0.5, 0.3, 15, 1, 650, 0.2, 2000, 1, 500, 130, 0.3, 1, 1, 0.2, 0.3, 10,0.3),
+  names = par_names) %>%
+  as_tibble()
+
+#Model simulation and evaluation
+
+q_fast <- run_swat2012(project_path = path_2012,
+            output = list(q_out = define_output(file = "rch",
+                                  variable = "FLOW_OUT",
+                                  unit = c(6,15))), # gavilanes = 15, pixquiac = 14
+            parameter = par_fast,
+            start_date = "2014-01-01",
+            end_date = "2017-12-31",
+            years_skip = 0,
+            n_thread = 4) 
+
+```
+
+Fast sensitivity Gavilanes
+
+```{r}
+
+#Find the date in q_sim which are present in Date column of q_obs
+q_fast$gav_c <- q_fast$simulation$q_out_15[q_fast$simulation$q_out_15$date %in% gav$obs$Date,]
+
+#Model evaluation
+
+#Nash sutclife
+q_fast$nse_gav <- q_fast$simulation$q_out_15%>%
+  subset(date %in% gav$obs$Date,)%>% # Subset TRUE when date from sim is dat obs 
+  select(-date)%>% # Apply for each simulation reusing date
+  map_dbl(., ~NSE(., gav$obs$Q_m3_s)) # Apply NSE function using q_sim, q_obs
+
+
+#Coefficient of determination
+q_fast$r2 <- q_fast$simulation$q_out_15%>%
+  subset(date %in% gav$obs$Date,)%>% # Subset TRUE when date from sim is dat obs 
+  select(-date)%>% # Apply for 
+  map_dbl(., ~cor(., gav$obs$Q_m3_s, method="pearson")^2) # Apply NSE function using q_sim, q_obs
+
+#Statistics 
+q_fast$sens.gav <- sensitivity(q_fast$nse_gav, 18) # These are the number of parameters
+
+
+#higher senstitivities change depending on the statistics of fit
+q_fast$result.gav <- tibble(parameter = q_fast$parameter$definition$par_name,
+                      fast      = q_fast$sens.gav) %>%
+  mutate(parameter = factor(parameter) %>% fct_reorder(., fast))
+
+
+ggplot(data = q_fast$result.gav) +
+  geom_bar(aes(x = parameter, y = fast), stat = "identity") +
+  xlab("Parameter") +
+  ylab("Sensitivity") +
+  coord_flip() +
+  theme_bw()+
+  theme(text = element_text(size = 14))
+
+
+
+
+
+```
+ 
+ 

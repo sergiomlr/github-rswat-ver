@@ -19,6 +19,7 @@
 
 # RStudio files
 .Rproj.user/
+*.Rproj
 
 # produced vignettes
 vignettes/*.html
@@ -34,6 +35,17 @@ vignettes/*.pdf
 # Temporary files created by R markdown
 *.utf8.md
 *.knit.md
+*.html
 
 # R Environment Variables
 .Renviron
+
+# Images
+*.PNG
+
+# Csv
+*.csv
+
+#Specific folders
+
+swat_models/

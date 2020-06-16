@@ -6,11 +6,11 @@ output: html_notebook
 
 Script 1
 
-This script reads measured discharge from main outlets and microwatersheds and should be
+Reads measured discharge from main outlets and microwatersheds and should be
 run first when starting from scratch.
 
 
-Load Libraries and set the working directory for Python
+Load Libraries and set the working directory for Python 
 
 ```{r}
 
@@ -20,7 +20,7 @@ library(ggplot2)
 library(gridExtra)
 library(hydroGOF) 
 library(reticulate) #Allows to use python in R
-use_python("C:/Users/Sergio/AppData/Local/Microsoft/WindowsApps") #Location of python 
+use_python("/home/sergio/PycharmProjects/test1/venv/bin/python") #Location of python 
 
 ```
 
@@ -78,6 +78,21 @@ obs_micros <- read.csv("C:/Veracruz/SWAT/github-rswat-ver/data/Micros.csv")
 
 # Import probabilities of exceedence in microwatersheds
 fdc_micros <- read.csv("C:/Veracruz/SWAT/github-rswat-ver/data/results_FDC_surface.csv")
+
+```
+Import observed files
+
+```{r}
+
+q_obs_gav <-read.csv("/home/sergio/Documents/R/github-rswat-ver/data/q_obs_gav.csv")%>%
+  mutate(Date = as.Date(Date))
+
+#Create a list of summary data for pixquic, contains dataframes
+pix <- list()
+
+#Add observed discharge data
+pix$obs <- read.csv("/home/sergio/Documents/R/github-rswat-ver/data/q_obs_pix.csv")%>%
+  mutate(Date = as.Date(Date))
 
 ```
 

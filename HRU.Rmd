@@ -46,12 +46,61 @@ sim_hru <- run_swat2012(project_path = path_2012,
             n_thread = 4)
 
 
-sim_pwn_hru <- sim_pwn_hru_p
+```
+
+#FDC visualization
+
+
+
+```{r}
+
+HRU <- list()
+
+# Import observed data
+HRU$obs <- read.csv("C:/Veracruz/SWAT/github-rswat-ver/data/Micros.csv")
+
+#Mature forest        46 (MF)
+HRU$MF <- sim_hru$simulation$q_out_46[2:ncol(sim_hru$simulation$q_out_46)]%>%
+  lapply(., sort, decreasing=T)%>%
+  data.frame(.)%>%
+  mutate(p = seq(0,1, length.out = nrow(.)))%>%
+  melt(.,  id.vars = 'p', variable.name = 'series') #To long dataframe
+
+#Intermediate forest  10 (IF)
+
+HRU$IF <- sim_hru$simulation$q_out_10[2:ncol(sim_hru$simulation$q_out_10)]%>%
+  lapply(., sort, decreasing=T)%>%
+  data.frame(.)%>%
+  mutate(p = seq(0,1, length.out = nrow(.)))%>%
+  melt(.,  id.vars = 'p', variable.name = 'series') #To long dataframe
+
+
+# Plot MF
+ggplot(HRU$MF, aes(p,value)) + geom_line(aes(colour = series)) + 
+  geom_line(data=HRU$obs, aes(P_PF, Q_PF))+
+  scale_y_continuous(trans="log2")
+
+# Plot IF
+ggplot(HRU$IF, aes(p,value)) + geom_line(aes(colour = series)) + 
+  geom_line(data=HRU$obs, aes(P_IF, Q_IF))+
+  scale_y_continuous(trans="log2")
 
 
 ```
 
-#FDC visualization
+
+#Compute statististics PBIAS Q5 and Q95
+
+
+```{r}
+
+#Compute mean quantile discharge
+
+print(tapply(HRU$MF$value[HRU$MF$p > 0.945 & HRU$MF$p < 0.955], HRU$MF$series[HRU$MF$p > 0.945 & HRU$MF$p < 0.955], mean))
+
+```
+
+
 
 ```{r}
 #subset the q_sim based on q_obs using date gavilanes
@@ -61,8 +110,10 @@ HRU <- list()
 lp <- 0.25
 up <- 0.75
 
+
 #Mature forest        46 (MF)
-HRU$MF.ET05 <- apply(sim_pwn_hru$simulation$q_out_46[2:ncol(sim_pwn_hru$simulation$q_out_46)],1 , function(x) quantile(as.numeric(x),lp))
+HRU$MF.ET05 <- apply(sim_hru$simulation$q_out_46[2:ncol(sim_hru$simulation$q_out_46)],1 , function(x) quantile(as.numeric(x),lp))
+
 HRU$MF.ET95 <- apply(sim_pwn_hru$simulation$q_out_46[2:ncol(sim_pwn_hru$simulation$q_out_46)],1 , function(x) quantile(as.numeric(x),up))
 
 #Pasture              17 (IP)

@@ -17,12 +17,10 @@ library(ggplot2)
 library(lhs)
 library(purrr)
 library(lubridate)
-<<<<<<< HEAD
 library(magrittr)
 library(reshape2)
 
-=======
->>>>>>> c2cd512df9d9a343a72fa9a4c8181eb0265f2bda
+
 ```
 
 Loading model
@@ -31,17 +29,11 @@ Loading model
 # The path where the SWAT project is written
 path_2012 <- "C:/Veracruz/SWAT/github-rswat-ver/swat_models/swat_t_canmx"
 
-<<<<<<< HEAD
 ```
 
 Import observed files
 
 ```{r}
-=======
-path_2012 <- "/home/sergio/Documents/R/github-rswat-ver/swat_models/TxtInOut"
-
-#"C:/Veracruz/SWAT/github-rswat-ver/swat_models/sim_swat_t"
->>>>>>> c2cd512df9d9a343a72fa9a4c8181eb0265f2bda
 
 #Create a list of summary data for pixquic, contains dataframes
 gav <- list()
@@ -65,7 +57,6 @@ q_sim_man <- run_swat2012(project_path = path_2012,
                            output = define_output(file = "rch",
                                                   variable = "FLOW_OUT",
                                                   unit = c(6, 15)))
-
 #Plot gavilanes
 q_sim_man%>%
   subset(date %in% gav$obs$Date,)%>%
@@ -78,7 +69,6 @@ q_sim_man%>%
           "NSE = ", NSE(FLOW_OUT_15, gav$obs$Q_m3_s),
           "KGE = ", KGE(FLOW_OUT_15, gav$obs$Q_m3_s),
           "PBIAS = ", pbias(FLOW_OUT_15, gav$obs$Q_m3_s)))
-
 
 #Plot Pixquiac
 q_sim_man%>%
@@ -96,7 +86,6 @@ q_sim_man%>%
           "PBIAS = ", pbias(FLOW_OUT_6, pix$obs$Q_m3_s)))
 
 ```
-
 
 # Type of change
 r = ‘relchg’, multiply
@@ -250,15 +239,11 @@ ggplot(bestsims, aes(date,value)) + geom_line(aes(colour = "best 25 sims"))+
 
 bestpar <- sim_pwn$parameter$values[c(order(gav$nse, decreasing = T)[1:25]),]
 
-res <- cor(bestpar)
 
+#Explore the correlation plot
 library(corrplot)
-corrplot(res, type = "upper", order = "hclust", 
+corrplot(cor(bestpar), type = "upper", order = "hclust", 
          tl.col = "black", tl.srt = 45)
-
-
-
-
 
 ```
 
@@ -284,7 +269,6 @@ par_names <- c("SOL_AWC.sol|change = relchg",
                "HRU_SLP.hru|change = relchg",
                "SLSUBBSN.hru|change = relchg",
                "SURLAG.bsn|change = absval",
-<<<<<<< HEAD
                "CANMX.hru|change = relchg",
                "GW_SPYLD.gw|change = absval", #New parameters
                "ALPHA_BNK.rte|change = absval",
@@ -292,35 +276,18 @@ par_names <- c("SOL_AWC.sol|change = relchg",
                "SLSOIL.hru|change = absval",
                "DEP_IMP.hru|change = absval"
                )
-=======
-               #"BLAI{1,2,40,6,12,94}.plant.dat|change = relchg",
-               "CANMX.hru|change = relchg"
-               )
-
-
-```
->>>>>>> c2cd512df9d9a343a72fa9a4c8181eb0265f2bda
 
 #Parameter sampling with the FAST method
 
 par_fast <- fast_parameters(
-<<<<<<< HEAD
   minimum = c(-0.35, -0.5, -0.3, -15, 0, 0, 0.02, 0, 0, 0, 5, 0, 0, 0, -0.2, -0.3, 0,-0.3,0, 0, 0, 0, 0),
   maximum = c(0.35, 0.5, 0.3, 15, 1, 650, 0.2, 2000, 1, 500, 130, 0.3, 1, 1, 0.2, 0.3, 10, 0.3, 0.4, 1, 180, 150, 6000),
-=======
-  minimum = c(-0.35, -0.8, -0.3, -0.25, 0, 0, 0.02, 0, 0, 0, 5, 0, 0, 0, -0.2, -0.3, 0,-0.3),
-  maximum = c(0.35, 0.8, 0.3, 0.25, 1, 650, 0.2, 2000, 1, 500, 130, 0.3, 1, 1, 0.2, 0.3, 10,0.3),
->>>>>>> c2cd512df9d9a343a72fa9a4c8181eb0265f2bda
   names = par_names) %>%
   as_tibble()
 
 
-<<<<<<< HEAD
 #Model simulation and evaluation
 q_fast <- run_swat2012(project_path = path_2012,
-=======
-q_fast_l <- run_swat2012(project_path = path_2012,
->>>>>>> c2cd512df9d9a343a72fa9a4c8181eb0265f2bda
             output = list(q_out = define_output(file = "rch",
                                   variable = "FLOW_OUT",
                                   unit = c(6,15))), # gavilanes = 15, pixquiac = 6
@@ -328,12 +295,7 @@ q_fast_l <- run_swat2012(project_path = path_2012,
             start_date = "2014-01-01",
             end_date = "2017-12-31",
             years_skip = 1,
-<<<<<<< HEAD
             n_thread = 4)
-=======
-            n_thread = 8) 
-
->>>>>>> c2cd512df9d9a343a72fa9a4c8181eb0265f2bda
 
 ```
 

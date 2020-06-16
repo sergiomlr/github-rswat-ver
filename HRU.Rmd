@@ -3,31 +3,15 @@ title: "HRU"
 output: html_notebook
 ---
 
+Try to reduce the universe of possible unique parameter sets
+
 ```{r}
-# The path where the SWAT project is written
+# Select the best parameters selected from the sensitivity analysis
 
-path_2012 <- "/home/sergio/Documents/R/github-rswat-ver/swat_models/TxtInOut"
-
-par_bound <- tibble("CN2.mgt|change = abschg" = c(-15, 15),
-                    "SURLAG.bsn|change = absval"= c(0, 10),
-                    "SOL_AWC.sol|change = relchg"= c(-0.4, 0.4),
-                    "RCHRG_DP.gw|change = absval"= c(0, 1),
-                    "GW_DELAY.gw|change = absval"= c(0, 650),
-                    "ALPHA_BF.gw|change = absval"= c(0, 1),
-                    "CANMX.hru|change = abschg" = c(0, 6),
-                    "ESCO.hru|change = absval" = c(0, 1),
-                    "SOL_K.sol|change = relchg" = c(-0.8, 0.8),
-                    "CH_K2.rte|change = absval"= c(5, 130),
-                    "CH_N2.rte|change = absval"= c(0, 0.3)
-                    )
-
-n_sample <- 2000
-n_par <- ncol(par_bound)
-
-par_pwn <- randomLHS(n = n_sample, k = n_par) %>%
-  as_tibble(., .name_repair = "minimal") %>%
-  map2_df(., par_bound, ~ (.x * (.y[2] - .y[1]) + .y[1])) %>%
+par_best<-bestpar %>%
   set_names(names(par_bound))
+
+
 
 #HRU codes
 #Mature forest        46 (MF)
@@ -49,17 +33,19 @@ sim_pwn_hru <- run_swat2012(project_path = path_2012,
             years_skip = 1,
             n_thread = 4)
 
-#Modeling W
+#Modeling WYLD
 library(stringr)
-sim_pwn_hru_p <- run_swat2012(project_path = path_2012,
+sim_hru <- run_swat2012(project_path = path_2012,
             output = list(q_out = define_output(file = "hru",
-                                  variable = "PRECIP",
+                                  variable = "WYLD",
                                   unit = c(46,17,10,66,58))), # gavilanes = 15, pixquiac = 14
-            parameter = par_pwn,
+            parameter = par_best,
             start_date = "2014-01-01",
             end_date = "2017-12-31",
             years_skip = 1,
             n_thread = 4)
+
+
 sim_pwn_hru <- sim_pwn_hru_p
 
 

@@ -3,6 +3,7 @@ title: "Parameter sensitivity analysis"
 output: html_notebook
 ---
 
+
 Loading R packages
 
 ```{r}
@@ -362,13 +363,5 @@ bestpar$max <- apply(bestpar$best25[1: (ncol(bestpar$best25)-1)], 2, max)
 
 ```
 
-Reducing the universe of plausible non unique parameter sets with multiple contraints
 
-```{r}
-
-
-
-```
-
- 
  

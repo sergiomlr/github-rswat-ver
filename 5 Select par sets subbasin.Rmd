@@ -1,0 +1,157 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+#Loading R packages
+
+```{r}
+library(SWATplusR)
+library(sensitivity)
+library(fast)
+library(hydroGOF)
+library(dplyr)
+library(forcats)
+library(tidyr)
+library(ggplot2)
+library(lhs)
+library(purrr)
+library(lubridate)
+library(magrittr)
+library(reshape2)
+
+```
+
+#Loading model
+
+```{r}
+# The path where the SWAT project is written
+path_2012 <- "C:/Veracruz/SWAT/github-rswat-ver/swat_models/swat_t_canmx"
+
+```
+
+
+# Type of change
+r = ‘relchg’, multiply
+v = “absval”, replace
+a = “abschg”, add 
+
+#Latin Hypercube sampling (15 pars) previously selected
+
+```{r}
+par_bound <- tibble("SOL_AWC.sol|change = relchg" = c(-0.35, 0.35), #Soils 
+               "SOL_K.sol|change = relchg" = c(-0.8, 0.8), # 
+               "ALPHA_BF.gw|change = absval" = c (0, 1), #Groundwater
+               "RCHRG_DP.gw|change = absval" = c(0, 1),
+               "CN2.mgt|change = abschg" = c(-15, 15),
+               "ALPHA_BNK.rte|change = absval" = c(0, 1), # Channels
+               "CH_N2.rte|change = absval" = c(0, 0.3),
+               "CH_K2.rte|change = absval" = c(5, 130),
+               "LAT_TTIME.hru|change = absval" = c(0, 180),
+               "SLSOIL.hru|change = absval" = c(0, 150),
+               "ESCO.hru|change = absval" = c(0, 1),
+               "DEP_IMP.hru|change = absval" = c(0, 6000),
+               "HRU_SLP.hru|change = relchg"= c(-0.2, 0.2),
+               "EPCO.hru|change = absval" = c(0, 1),
+               "GW_DELAY.gw|change = absval"= c(0, 500)
+               )
+
+n_sample <- 3000
+n_par <- ncol(par_bound)
+
+#Latin hypercube sampling
+par_pwn <- randomLHS(n = n_sample, k = n_par) %>%
+  as_tibble(., .name_repair = "minimal") %>%
+  map2_df(., par_bound, ~ (.x * (.y[2] - .y[1]) + .y[1])) %>%
+  set_names(names(par_bound))
+
+
+sim_pwn <- run_swat2012(project_path = path_2012,
+            output = list(q_out = define_output(file = "rch",
+                                  variable = "FLOW_OUT",
+                                  unit = c(6,15))), # gavilanes = 15, pixquiac = 6
+            parameter = par_pwn,
+            start_date = "2014-01-01",
+            end_date = "2017-12-31",
+            years_skip = 1,
+            n_thread = 4)
+
+```
+
+
+#The model runs are evaluated using the R2, NSE, and KGE criterion in Gavilanes
+
+```{r}
+#Gavilanes
+
+#Adding results to Gavilanes
+gav$sim_pwn <- sim_pwn$simulation$q_out_15[sim_pwn$simulation$q_out_15$date %in% gav$obs$Date,]
+
+#Calculate max and min
+gav$obs$q5 <- apply(gav$sim_pwn[2:ncol(gav$sim_pwn)],1 , function(x) min(as.numeric(x)))
+
+gav$obs$q95 <- apply(gav$sim_pwn[2:ncol(gav$sim_pwn)],1 , function(x) max(as.numeric(x)))
+
+
+#Nash–Sutcliffe efficiency 
+gav$nse <- gav$sim_pwn %>%
+  select(-date) %>%
+  map_dbl(., ~NSE(.x, gav$obs$Q_m3_s))
+
+#Coefficient of determination
+gav$r2 <- gav$sim_pwn%>%
+  select(-date)%>%
+  map_dbl(., ~cor(., gav$obs$Q_m3_s, method="pearson")^2)
+
+# Kling-Gupta efficiency criterion (KGE)
+gav$kge <- gav$sim_pwn%>%
+  select(-date)%>%
+  map_dbl(., ~KGE(., gav$obs$Q_m3_s))
+
+```
+
+#Select the best parameter sets according to NSE
+
+```{r}
+bestpar <-  list()
+
+#Selecting the best parameter sets
+bestpar$best25 <- sim_pwn$parameter$values[c(order(gav$nse, decreasing = T)[1:25]),]%>%
+  mutate(sim = order(gav$nse, decreasing=T)[1:25])
+
+
+#Correlation between parameters
+library(corrplot)
+corrplot(cor(bestpar$best25), type = "upper", order = "hclust", 
+         tl.col = "black", tl.srt = 45)
+
+```
+
+#Plot the best sims in gavilanes
+
+```{r}
+
+#Plot the best sims
+
+bestpar$bestsims <- data.frame(gav$sim_pwn[c(0,order(gav$nse, decreasing=T)[1:25])+1])%>%# Including date 1
+  melt(.,  id.vars = 'date', variable.name = 'series')
+
+ggplot(bestpar$bestsims, aes(date,value)) + geom_line(aes(colour = series))+
+  geom_line(data=gav$obs, aes(Date, Q_m3_s))
+
+
+#fdc  
+bestpar$simsgav <- data.frame(gav$sim_pwn[c(order(gav$nse, decreasing=T)[1:25])])%>%
+  lapply(., sort, decreasing=T)%>%
+  data.frame(.)%>%
+  mutate(p = seq(0,1, length.out = nrow(.)))%>%
+  melt(.,  id.vars = 'p', variable.name = 'series') #To long dataframe
+
+ggplot(bestpar$simsgav, aes(p,value)) + geom_line(aes(colour = series)) + 
+  geom_line(data=gav$fdc, aes(p, Q_m3_s))+
+  scale_y_continuous(trans="log2")
+
+
+```
+
+

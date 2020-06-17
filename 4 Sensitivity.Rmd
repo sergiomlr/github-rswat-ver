@@ -23,7 +23,7 @@ library(reshape2)
 
 ```
 
-Loading model
+#Loading model
 
 ```{r}
 # The path where the SWAT project is written
@@ -31,7 +31,7 @@ path_2012 <- "C:/Veracruz/SWAT/github-rswat-ver/swat_models/swat_t_canmx"
 
 ```
 
-Import observed files
+#Import observed files
 
 ```{r}
 
@@ -49,7 +49,7 @@ pix$obs <- read.csv("C:/Veracruz/SWAT/github-rswat-ver/data/q_obs_pix.csv")%>%
   mutate(Date = as.Date(Date))
 ```
 
-Run the manual calibration run
+#Run the manual calibration run
 
 ```{r}
 
@@ -92,80 +92,6 @@ r = ‘relchg’, multiply
 v = “absval”, replace
 a = “abschg”, add 
 
-#Latin Hypercube sampling (15 pars)
-
-```{r}
-par_bound <- tibble("SOL_AWC.sol|change = relchg" = c(-0.35, 0.35), #Soils 
-               "SOL_K.sol|change = relchg" = c(-0.8, 0.8), # 
-               "ALPHA_BF.gw|change = absval" = c (0, 1), #Groundwater
-               "RCHRG_DP.gw|change = absval" = c(0, 1),
-               "CN2.mgt|change = abschg" = c(-15, 15),
-               "ALPHA_BNK.rte|change = absval" = c(0, 1), # Channels
-               "CH_N2.rte|change = absval" = c(0, 0.3),
-               "CH_K2.rte|change = absval" = c(5, 130),
-               "LAT_TTIME.hru|change = absval" = c(0, 180),
-               "SLSOIL.hru|change = absval" = c(0, 150),
-               "ESCO.hru|change = absval" = c(0, 1),
-               "DEP_IMP.hru|change = absval" = c(0, 6000),
-               "HRU_SLP.hru|change = relchg"= c(-0.2, 0.2),
-               "EPCO.hru|change = absval" = c(0, 1),
-               "GW_DELAY.gw|change = absval"= c(0, 500)
-               )
-
-n_sample <- 3000
-n_par <- ncol(par_bound)
-
-#Latin hypercube sampling
-par_pwn <- randomLHS(n = n_sample, k = n_par) %>%
-  as_tibble(., .name_repair = "minimal") %>%
-  map2_df(., par_bound, ~ (.x * (.y[2] - .y[1]) + .y[1])) %>%
-  set_names(names(par_bound))
-
-
-sim_pwn <- run_swat2012(project_path = path_2012,
-            output = list(q_out = define_output(file = "rch",
-                                  variable = "FLOW_OUT",
-                                  unit = c(6,15))), # gavilanes = 15, pixquiac = 6
-            parameter = par_pwn,
-            start_date = "2014-01-01",
-            end_date = "2017-12-31",
-            years_skip = 1,
-            n_thread = 4)
-
-```
-
-The model runs are evaluated using the R2 and NSE criterion for daily discharge in Gavilanes
-
-```{r}
-#Gavilanes
-
-#Adding results from tempawn to Gavilanes
-gav$sim_pwn <- sim_pwn$simulation$q_out_15[sim_pwn$simulation$q_out_15$date %in% gav$obs$Date,]
-
-#Calculate max and min quantiles 5 and 95 %
-gav$obs$q5 <- apply(gav$sim_pwn[2:ncol(gav$sim_pwn)],1 , function(x) min(as.numeric(x)))
-
-gav$obs$q95 <- apply(gav$sim_pwn[2:ncol(gav$sim_pwn)],1 , function(x) max(as.numeric(x)))
-
-
-#Nash–Sutcliffe efficiency 
-
-gav$nse <- gav$sim_pwn %>%
-  select(-date) %>%
-  map_dbl(., ~NSE(.x, gav$obs$Q_m3_s))
-
-#Coefficient of determination
-gav$r2 <- gav$sim_pwn%>%
-  select(-date)%>%
-  map_dbl(., ~cor(., gav$obs$Q_m3_s, method="pearson")^2)
-
-# Kling-Gupta efficiency criterion (KGE)
-
-gav$kge <- gav$sim_pwn%>%
-  select(-date)%>%
-  map_dbl(., ~KGE(., gav$obs$Q_m3_s))
-
-```
 
 Visualization of uncertainty Gavilanes watershed
 
@@ -211,51 +137,7 @@ print(c("R^2 = ", (cor(gav$sim_pwn$run_0563, gav$obs$Q_m3_s))^2,
 
 ```
 
-#Select the best paramter sets according to NSE
-
-```{r}
-bestpar <-  list()
-
-#Selecting the best parameter sets
-bestpar$best25 <- sim_pwn$parameter$values[c(order(gav$nse, decreasing = T)[1:25]),]%>%
-  mutate(sim = order(gav$nse, decreasing=T)[1:25])
-
-
-#Correlation between parameters
-library(corrplot)
-corrplot(cor(bestpar$best25), type = "upper", order = "hclust", 
-         tl.col = "black", tl.srt = 45)
-
-```
-
-#Plot the best sims
-
-```{r}
-
-#Plot the best sims
-
-bestpar$bestsims <- data.frame(gav$sim_pwn[c(0,order(gav$nse, decreasing=T)[1:25])+1])%>%# Including date 1
-  melt(.,  id.vars = 'date', variable.name = 'series')
-
-ggplot(bestpar$bestsims, aes(date,value)) + geom_line(aes(colour = series))+
-  geom_line(data=gav$obs, aes(Date, Q_m3_s))
-
-
-#fdc  
-bestpar$simsgav <- data.frame(gav$sim_pwn[c(order(gav$nse, decreasing=T)[1:25])])%>%
-  lapply(., sort, decreasing=T)%>%
-  data.frame(.)%>%
-  mutate(p = seq(0,1, length.out = nrow(.)))%>%
-  melt(.,  id.vars = 'p', variable.name = 'series') #To long dataframe
-
-ggplot(bestpar$simsgav, aes(p,value)) + geom_line(aes(colour = series)) + 
-  geom_line(data=gav$fdc, aes(p, Q_m3_s))+
-  scale_y_continuous(trans="log2")
-
-
-```
-
-#Fast sensitivity
+#Fast sensitivity analysis
 
 ```{r}
 #Define the parameter names
@@ -292,7 +174,6 @@ par_fast <- fast_parameters(
   maximum = c(0.35, 0.5, 0.3, 15, 1, 650, 0.2, 2000, 1, 500, 130, 0.3, 1, 1, 0.2, 0.3, 10, 0.3, 0.4, 1, 180, 150, 6000),
   names = par_names) %>%
   as_tibble()
-
 
 #Model simulation and evaluation
 q_fast <- run_swat2012(project_path = path_2012,
@@ -353,20 +234,6 @@ ggplot(data = q_fast$result.gav) +
   theme_bw()+
   theme(text = element_text(size = 14))
 
-
-```
-
-
-Select the best paramters using the best 25 simulations according with R2
-
-```{r}
-bestpar <-  list()
-
-bestpar$best25 <- q_fast$parameter$values[c(order(gav$nse_fast)[1:25]),]%>%
-  mutate(sim = order(gav$nse_fast)[1:25])#subsetting using the best 20 simulations
-
-bestpar$min <- apply(bestpar$best25[1:(ncol(bestpar$best25)-1)], 2, min) #Min every column
-bestpar$max <- apply(bestpar$best25[1: (ncol(bestpar$best25)-1)], 2, max)
 
 ```
 

@@ -21,7 +21,6 @@ library(lubridate)
 library(magrittr)
 library(reshape2)
 
-
 ```
 
 Loading model
@@ -144,12 +143,6 @@ The model runs are evaluated using the R2 and NSE criterion for daily discharge 
 gav$sim_pwn <- sim_pwn$simulation$q_out_15[sim_pwn$simulation$q_out_15$date %in% gav$obs$Date,]
 
 #Calculate max and min quantiles 5 and 95 %
-gav$obs$q5 <- apply(gav$sim_pwn[2:ncol(gav$sim_pwn)],1 , function(x) quantile(as.numeric(x),0.05))
-
-gav$obs$q95 <- apply(gav$sim_pwn[2:ncol(gav$sim_pwn)],1 , function(x) quantile(as.numeric(x),0.95))
-
-
-#Calculate max and min quantiles 5 and 95 %
 gav$obs$q5 <- apply(gav$sim_pwn[2:ncol(gav$sim_pwn)],1 , function(x) min(as.numeric(x)))
 
 gav$obs$q95 <- apply(gav$sim_pwn[2:ncol(gav$sim_pwn)],1 , function(x) max(as.numeric(x)))
@@ -218,33 +211,47 @@ print(c("R^2 = ", (cor(gav$sim_pwn$run_0563, gav$obs$Q_m3_s))^2,
 
 ```
 
-Select the best paramters using the best 25 simulations according with R2
+#Select the best paramter sets according to NSE
 
 ```{r}
 bestpar <-  list()
 
+#Selecting the best parameter sets
 bestpar$best25 <- sim_pwn$parameter$values[c(order(gav$nse, decreasing = T)[1:25]),]%>%
-  mutate(sim = order(gav$nse, decreasing=T)[1:25])#subsetting using the best 25 simulations
+  mutate(sim = order(gav$nse, decreasing=T)[1:25])
 
 
-bestpar$min <- apply(bestpar$best25[1:(ncol(bestpar$best25)-1)], 2, min) #Min every column
-bestpar$max <- apply(bestpar$best25[1: (ncol(bestpar$best25)-1)], 2, max)
-
-bestpar$bestsims <- data.frame(gav$sim_pwn[c(0,order(gav$nse, decreasing=T)[1:25])+1])# Including date 1
-
-bestsims <- melt(bestpar$bestsims,  id.vars = 'date', variable.name = 'series') #To long dataframe
-
-# plot on same grid, each series colored differently -- 
-ggplot(bestsims, aes(date,value)) + geom_line(aes(colour = "best 25 sims"))+
-  geom_line(data=gav$obs, aes(Date,Q_m3_s, colour="obs"))
-
-bestpar <- sim_pwn$parameter$values[c(order(gav$nse, decreasing = T)[1:25]),]
-
-
-#Explore the correlation plot
+#Correlation between parameters
 library(corrplot)
-corrplot(cor(bestpar), type = "upper", order = "hclust", 
+corrplot(cor(bestpar$best25), type = "upper", order = "hclust", 
          tl.col = "black", tl.srt = 45)
+
+```
+
+#Plot the best sims
+
+```{r}
+
+#Plot the best sims
+
+bestpar$bestsims <- data.frame(gav$sim_pwn[c(0,order(gav$nse, decreasing=T)[1:25])+1])%>%# Including date 1
+  melt(.,  id.vars = 'date', variable.name = 'series')
+
+ggplot(bestpar$bestsims, aes(date,value)) + geom_line(aes(colour = series))+
+  geom_line(data=gav$obs, aes(Date, Q_m3_s))
+
+
+#fdc  
+bestpar$simsgav <- data.frame(gav$sim_pwn[c(order(gav$nse, decreasing=T)[1:25])])%>%
+  lapply(., sort, decreasing=T)%>%
+  data.frame(.)%>%
+  mutate(p = seq(0,1, length.out = nrow(.)))%>%
+  melt(.,  id.vars = 'p', variable.name = 'series') #To long dataframe
+
+ggplot(bestpar$simsgav, aes(p,value)) + geom_line(aes(colour = series)) + 
+  geom_line(data=gav$fdc, aes(p, Q_m3_s))+
+  scale_y_continuous(trans="log2")
+
 
 ```
 

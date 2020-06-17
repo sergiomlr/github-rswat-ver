@@ -67,12 +67,21 @@ HRU$MF <- sim_hru$simulation$q_out_46[2:ncol(sim_hru$simulation$q_out_46)]%>%
   melt(.,  id.vars = 'p', variable.name = 'series') #To long dataframe
 
 #Intermediate forest  10 (IF)
-
 HRU$IF <- sim_hru$simulation$q_out_10[2:ncol(sim_hru$simulation$q_out_10)]%>%
   lapply(., sort, decreasing=T)%>%
   data.frame(.)%>%
   mutate(p = seq(0,1, length.out = nrow(.)))%>%
   melt(.,  id.vars = 'p', variable.name = 'series') #To long dataframe
+
+
+#Pasture              17 (IP)
+HRU$IP <- sim_hru$simulation$q_out_17[2:ncol(sim_hru$simulation$q_out_17)]%>%
+  lapply(., sort, decreasing=T)%>%
+  data.frame(.)%>%
+  mutate(p = seq(0,1, length.out = nrow(.)))%>%
+  melt(.,  id.vars = 'p', variable.name = 'series') #To long dataframe
+
+
 
 
 # Plot MF
@@ -85,18 +94,29 @@ ggplot(HRU$IF, aes(p,value)) + geom_line(aes(colour = series)) +
   geom_line(data=HRU$obs, aes(P_IF, Q_IF))+
   scale_y_continuous(trans="log2")
 
+# Plot IP
+ggplot(HRU$IP, aes(p,value)) + geom_line(aes(colour = series)) + 
+  geom_line(data=HRU$obs, aes(P_HP, Q_HP))+
+  scale_y_continuous(trans="log2")
 
 ```
 
-
 #Compute statististics PBIAS Q5 and Q95
-
 
 ```{r}
 
-#Compute mean quantile discharge
+#Compute mean quantile discharge for low flows
 
-print(tapply(HRU$MF$value[HRU$MF$p > 0.945 & HRU$MF$p < 0.955], HRU$MF$series[HRU$MF$p > 0.945 & HRU$MF$p < 0.955], mean))
+HRU$PBIAS95$MF <-(tapply(HRU$MF$value[HRU$MF$p > 0.945 & HRU$MF$p < 0.955], 
+                      HRU$MF$series[HRU$MF$p > 0.945 & HRU$MF$p < 0.955], mean))
+
+HRU$PBIAS9$MF <- (((HRU$PBIAS95$MF)-1.29)/1.29)*100
+
+
+HRU$PBIAS95$IF <-(tapply(HRU$IF$value[HRU$IF$p > 0.945 & HRU$IF$p < 0.955], 
+                      HRU$IF$series[HRU$IF$p > 0.945 & HRU$IF$p < 0.955], mean))
+
+HRU$PBIAS95$IF <- (((HRU$PBIAS95$IF)-1.18)/1.18)*100
 
 ```
 

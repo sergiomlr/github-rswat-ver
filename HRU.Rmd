@@ -3,14 +3,13 @@ title: "HRU"
 output: html_notebook
 ---
 
-Try to reduce the universe of possible unique parameter sets
+#Try to reduce the universe of possible unique parameter sets
 
 ```{r}
 # Select the best parameters selected from the sensitivity analysis
 
-par_best<-bestpar %>%
+par_best<-bestpar$best25 %>%
   set_names(names(par_bound))
-
 
 
 #HRU codes
@@ -50,8 +49,6 @@ sim_hru <- run_swat2012(project_path = path_2012,
 
 #FDC visualization
 
-
-
 ```{r}
 
 HRU <- list()
@@ -80,7 +77,6 @@ HRU$IP <- sim_hru$simulation$q_out_17[2:ncol(sim_hru$simulation$q_out_17)]%>%
   data.frame(.)%>%
   mutate(p = seq(0,1, length.out = nrow(.)))%>%
   melt(.,  id.vars = 'p', variable.name = 'series') #To long dataframe
-
 
 
 

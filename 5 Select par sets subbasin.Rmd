@@ -109,7 +109,7 @@ gav$kge <- gav$sim_pwn%>%
   map_dbl(., ~KGE(., gav$obs$Q_m3_s))
 
 
-#sort fdc for gav
+#Create the for gav
 
 gav$fdc_sim <- gav$sim_pwn%>%
   select(-date)%>%
@@ -118,20 +118,12 @@ gav$fdc_sim <- gav$sim_pwn%>%
   as_data_frame()
 
 gav$fdc_sim$p <- seq(0,1,length.out= length(gav$fdc_sim[[1]]))
-  
 
+  
 #Apply function to sorted 
 
-gav$rsr_vlow <- gav$fdc_sim%>%
-  map_dbl(., ~KGE(., gav$obs$Q_m3_s))
-
-
-gav$fdc$Q_m3_s[gav$fdc$p>0.95]
-
-
-HRU$PBIAS95$MF <-(tapply(HRU$MF$value[HRU$MF$p > 0.945 & HRU$MF$p < 0.955], 
-                      HRU$MF$series[HRU$MF$p > 0.945 & HRU$MF$p < 0.955], mean))
-
+gav$rsr_Q95 <- gav$fdc_sim[gav$fdc_sim$p>0.95,]%>% # Subset matrix with a prob. of exceedence
+  map_dbl(., ~rsr(.,gav$fdc$Q_m3_s[gav$fdc$p>0.95]))# Subset obs with a prob. of exceedence
 
 ```
 
@@ -158,7 +150,7 @@ corrplot(cor(bestpar$best25), type = "upper", order = "hclust",
 
 #Plot the best sims using KGE
 
-bestpar$bestsims <- data.frame(gav$sim_pwn[c(0,order(gav$kge, decreasing=T)[1:300])+1])%>%# Including date 1
+bestpar$bestsims <- data.frame(gav$sim_pwn[c(0,order(gav$rsr_Q95, decreasing=F)[1:30])+1])%>%# Including date 1
   melt(.,  id.vars = 'date', variable.name = 'series')
 
 ggplot(bestpar$bestsims, aes(date,value)) + geom_line(aes(colour = "series"))+
@@ -166,9 +158,8 @@ ggplot(bestpar$bestsims, aes(date,value)) + geom_line(aes(colour = "series"))+
   geom_line(data=gav$obs, aes(Date, Q_m3_s))
 
 
-
 #fdc  
-bestpar$simsgav <- data.frame(gav$sim_pwn[c(order(gav$kge, decreasing=T)[1:300])+1])%>%
+bestpar$simsgav <- data.frame(gav$sim_pwn[c(order(gav$rsr_Q95, decreasing=F)[1:30])+1])%>%
   lapply(., sort, decreasing=T)%>%
   data.frame(.)%>%
   mutate(p = seq(0,1, length.out = nrow(.)))%>%
@@ -183,7 +174,28 @@ ggplot(bestpar$simsgav, aes(p,value)) + geom_line(aes(colour = "series")) +
 
 ```
 
+#Lets intersect the best 25 quantile of the simulations considering RSRQ95 and KGE
+
 ```{r}
+
+print(order(gav$rsr_Q95, decreasing=F)[1:300])  # The highest 10 percentile of simulations in terms of RSR_Q95
+
+print(order(gav$kge, decreasing=T)[1:300])  # The highest 10 percentile of simulations in terms of KGE
+
+
+print(intersect(order(gav$rsr_Q95, decreasing=F)[1:750],order(gav$kge, decreasing=T)[1:750]))
+
+#fdc  
+bestpar$simsgav <- data.frame(gav$sim_pwn[c(intersect(order(gav$rsr_Q95, decreasing=F)[1:750],order(gav$kge, decreasing=T)[1:750]))+1])%>%
+  lapply(., sort, decreasing=T)%>%
+  data.frame(.)%>%
+  mutate(p = seq(0,1, length.out = nrow(.)))%>%
+  melt(.,  id.vars = 'p', variable.name = 'series') #To long dataframe
+
+
+ggplot(bestpar$simsgav, aes(p,value)) + geom_line(aes(colour = "series")) + 
+  geom_line(data=gav$fdc, aes(p, Q_m3_s))+
+  scale_y_continuous(trans="log2")
 
 
 

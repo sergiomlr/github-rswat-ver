@@ -5,10 +5,18 @@ output: html_notebook
 
 #Try to reduce the universe of possible unique parameter sets
 
+Load libraries
+```{r}
+library(latex2exp)
+library(gridExtra)
+
+```
+
+
 ```{r}
 # Select the best parameters selected from the sensitivity analysis
 
-par_best<-bestpar$best25 %>%
+par_best<-bestpar$best %>%
   set_names(names(par_bound))
 
 
@@ -79,21 +87,58 @@ HRU$IP <- sim_hru$simulation$q_out_17[2:ncol(sim_hru$simulation$q_out_17)]%>%
   melt(.,  id.vars = 'p', variable.name = 'series') #To long dataframe
 
 
+#Coffee Trianon       66 (CT)
+HRU$CT <- sim_hru$simulation$q_out_66[2:ncol(sim_hru$simulation$q_out_66)]%>%
+  lapply(., sort, decreasing=T)%>%
+  data.frame(.)%>%
+  mutate(p = seq(0,1, length.out = nrow(.)))%>%
+  melt(.,  id.vars = 'p', variable.name = 'series') #To long dataframe
+
+
+#Make the plots
+plots <- list()
+
+My_Theme = theme(plot.title = element_text(face = "bold", size= 16),axis.title = element_text(size= 14), 
+                 axis.text = element_text(size = 18), legend.title = element_text(size=14), 
+                 legend.text = element_text(size=14)) + theme_classic(base_size = 16)
 
 # Plot MF
-ggplot(HRU$MF, aes(p,value)) + geom_line(aes(colour = series)) + 
-  geom_line(data=HRU$obs, aes(P_PF, Q_PF))+
-  scale_y_continuous(trans="log2")
+plots$a <- ggplot(HRU$MF, aes(p,value)) + geom_line(aes(colour = series)) + 
+  geom_line(data=HRU$obs, aes(P_PF, Q_PF))+ scale_y_continuous(trans="log2", limits = c(0.25,32))+
+  labs(title = "Mature forest")+ ylab(TeX("$Q_{mm/day}$")) + 
+  xlab(TeX("Prob. of exceedence"))+ My_Theme
 
 # Plot IF
-ggplot(HRU$IF, aes(p,value)) + geom_line(aes(colour = series)) + 
+plots$b <- ggplot(HRU$IF, aes(p,value)) + geom_line(aes(colour = series)) + 
   geom_line(data=HRU$obs, aes(P_IF, Q_IF))+
-  scale_y_continuous(trans="log2")
+  scale_y_continuous(trans="log2",limits = c(0.25,32))+
+  labs(title = "Intermediate forest")+ ylab(TeX("$Q_{mm/day}$")) + 
+  xlab(TeX("Prob. of exceedence"))+ My_Theme
 
 # Plot IP
-ggplot(HRU$IP, aes(p,value)) + geom_line(aes(colour = series)) + 
+plots$c<- ggplot(HRU$IP, aes(p,value)) + geom_line(aes(colour = series)) + 
   geom_line(data=HRU$obs, aes(P_HP, Q_HP))+
-  scale_y_continuous(trans="log2")
+  scale_y_continuous(trans="log2", limits = c(0.25,32))+
+  labs(title = "Intensive pasture")+ ylab(TeX("$Q_{mm/day}$")) + 
+  xlab(TeX("Prob. of exceedence"))+ My_Theme
+
+# Plot CT
+plots$d <- ggplot(HRU$CT, aes(p,value)) + geom_line(aes(colour = series)) + 
+  geom_line(data=HRU$obs, aes(P_C, Q_C))+
+  scale_y_continuous(trans="log2", limits = c(0.25,32))+
+  labs(title = "Shade coffee")+ ylab(TeX("$Q_{mm/day}$")) + 
+  xlab(TeX("Prob. of exceedence"))+ My_Theme
+
+ggsave(file="fdc_hru.png", plot = grid.arrange(plots$a, plots$b, plots$c, plots$d, ncol=2),
+       scale = 1.5, width = 12, height = 8, dpi = 300)
+
+
+ggplot() + geom_line(data=HRU$obs, aes(P_C, Q_C))+
+  geom_line(data=HRU$obs, aes(P_PF, Q_PF, colour="PF"))+
+  geom_line(data=HRU$obs, aes(P_IF, Q_IF, colour ="IF"))+
+  geom_line(data=HRU$obs, aes(P_HP, Q_HP))+
+  scale_y_continuous(trans="log2", limits = c(0.25,32))
+
 
 ```
 

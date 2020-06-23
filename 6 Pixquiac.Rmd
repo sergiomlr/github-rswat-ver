@@ -1,0 +1,74 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+
+```{r}
+#Piquiac
+
+#Create flow duration curves
+pix$fdc <- pix$obs%>%
+  arrange(., desc(Q_m3_s))%>%
+  mutate(q5 = sort(pix$obs$q5,decreasing = T))%>%
+  mutate(q95 = sort(pix$obs$q95,decreasing = T))%>%
+  mutate(p = seq(0,1, length.out = nrow(.))) # This needs to consider n + 1 
+
+#Adding results to Gavilanes
+pix$sim_pwn <- sim_pwn$simulation$q_out_6[sim_pwn$simulation$q_out_6$date %in% pix$obs$Date,]
+
+
+#Coefficient of determination
+pix$r2 <- pix$sim_pwn%>%
+  select(-date)%>%
+  map_dbl(., ~cor(., pix$obs$Q_m3_s, method="pearson")^2)
+
+
+#Nash–Sutcliffe efficiency 
+pix$nse <- pix$sim_pwn %>%
+  select(-date) %>%
+  map_dbl(., ~NSE(.x, pix$obs$Q_m3_s))
+
+
+
+bestpar$bestsims <- data.frame(pix$sim_pwn[c(0,
+                                             Reduce(intersect, list(
+                                                 order(gav$rsr_Q05, decreasing=F)[1:up], #Very high flows
+                                                 order(gav$rsr_Q5_20, decreasing=F)[1:up],
+                                                 order(gav$rsr_Q20_70, decreasing=F)[1:up],
+                                                 order(gav$rsr_Q70_95, decreasing=F)[1:up],
+                                                 order(gav$rsr_Q95, decreasing=F)[1:up], #Very low flows
+                                                 order(gav$kge, decreasing=T)[1:up] #KGE larger values are better
+                                                 ))
+                                             )+1])%>%# Including date 1
+  melt(.,  id.vars = 'date', variable.name = 'series')
+
+ggplot(bestpar$bestsims, aes(date,value)) + geom_line(aes(colour = "series"))+
+  geom_line(data=pix$sim_pwn, aes(date, run_1233, colour ="best sim"))+
+  geom_line(data=pix$obs, aes(Date, Q_m3_s + 0.56))
+
+
+
+#fdc  
+bestpar$simsgav <- data.frame(pix$sim_pwn[c(
+  Reduce(intersect, list(
+  order(gav$rsr_Q05, decreasing=F)[1:up], #Very high flows
+  order(gav$rsr_Q5_20, decreasing=F)[1:up],
+  order(gav$rsr_Q20_70, decreasing=F)[1:up],
+  order(gav$rsr_Q70_95, decreasing=F)[1:up],
+  order(gav$rsr_Q95, decreasing=F)[1:up], #Very low flows
+  order(gav$kge, decreasing=T)[1:up] #KGE larger values are better
+  ))
+  )+1])%>%
+  lapply(., sort, decreasing=T)%>%
+  data.frame(.)%>%
+  mutate(p = seq(0,1, length.out = nrow(.)))%>%
+  melt(.,  id.vars = 'p', variable.name = 'series') #To long dataframe
+
+
+ggplot(bestpar$simsgav, aes(p,value)) + geom_line(aes(colour = series)) + 
+  geom_line(data=pix$fdc, aes(p, Q_m3_s+ 0.56))+ geom_line(data=pix$fdc, aes(p, Q_m3_s))+
+  scale_y_continuous(trans="log2")
+
+
+```

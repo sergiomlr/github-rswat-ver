@@ -41,7 +41,7 @@ a = “abschg”, add
 ```{r}
 par_bound <- tibble("SOL_AWC.sol|change = relchg" = c(-0.35, 0.35), #Data
                "SOL_K.sol|change = relchg" = c(-0.8, 0.8), #Data
-               "ALPHA_BF.gw|change = absval" = c (0, 1), #Data
+               "ALPHA_BF.gw|change = absval" = c (0, 0.3), #Data
                "RCHRG_DP.gw|change = absval" = c(0, 1),
                "CN2.mgt|change = abschg" = c(-15, 15),
                "ALPHA_BNK.rte|change = absval" = c(0, 1), # Channels
@@ -56,7 +56,7 @@ par_bound <- tibble("SOL_AWC.sol|change = relchg" = c(-0.35, 0.35), #Data
                "GW_DELAY.gw|change = absval"= c(0, 500)
                )
 
-n_sample <- 3000
+n_sample <- 5000
 n_par <- ncol(par_bound)
 
 #Latin hypercube sampling
@@ -74,10 +74,64 @@ sim_pwn <- run_swat2012(project_path = path_2012,
             start_date = "2014-01-01",
             end_date = "2017-12-31",
             years_skip = 1,
-            n_thread = 4)
+            n_thread = 2)
 
 ```
 
+
+#Latin Hypercube sampling (16 pars) previously selected
+
+```{r}
+par_bound <- tibble("SOL_AWC.sol|change = relchg" = c(-0.35, 0.35), #Data
+               "SOL_K.sol|change = relchg" = c(-0.8, 0.8), #Data
+               "ALPHA_BF.gw|change = absval" = c (0, 0.3), #Data
+               "RCHRG_DP.gw|change = absval" = c(0, 1),
+               "CN2.mgt|change = abschg" = c(-15, 15),
+               "ALPHA_BNK.rte|change = absval" = c(0, 1), # Channels
+               "CH_N2.rte|change = absval" = c(0, 0.3),
+               "CH_K2.rte|change = absval" = c(5, 130),
+               "LAT_TTIME.hru|change = absval" = c(0, 180),
+               "SLSOIL.hru|change = absval" = c(0, 150),
+               "ESCO.hru|change = absval" = c(0, 1),
+               "DEP_IMP.hru|change = absval" = c(0, 6000),
+               "HRU_SLP.hru|change = relchg"= c(-0.2, 0.2),
+               "EPCO.hru|change = absval" = c(0, 1),
+               "GW_DELAY.gw|change = absval"= c(0, 500),
+               "GW_SPYLD.gw|change = absval" = c(0, 0.4)
+               )
+
+n_sample <- 5000
+n_par <- ncol(par_bound)
+
+#Latin hypercube sampling
+par_pwn2 <- randomLHS(n = n_sample, k = n_par) %>%
+  as_tibble(., .name_repair = "minimal") %>%
+  map2_df(., par_bound, ~ (.x * (.y[2] - .y[1]) + .y[1])) %>%
+  set_names(names(par_bound))
+
+
+sim_pwn2 <- run_swat2012(project_path = path_2012,
+            output = list(q_out = define_output(file = "rch",
+                                  variable = "FLOW_OUT",
+                                  unit = c(6,15))), # gavilanes = 15, pixquiac = 6
+            parameter = par_pwn2,
+            start_date = "2014-01-01",
+            end_date = "2017-12-31",
+            years_skip = 1,
+            n_thread = 4)
+
+
+#Here we store the first sim in as 1
+sim_pwn1 <- sim_pwn
+par_pwn1 <-par_pwn
+
+
+# Here we choose the sim to work with
+
+sim_pwn<- sim_pwn2
+par_pwn <-par_pwn2
+
+```
 
 #The model runs are evaluated using the R2, NSE, and KGE criterion in Gavilanes
 
@@ -120,14 +174,32 @@ gav$fdc_sim <- gav$sim_pwn%>%
 gav$fdc_sim$p <- seq(0,1,length.out= length(gav$fdc_sim[[1]]))
 
   
-#Apply function to sorted 
+#Calculate RSR for different signatures
 
+#Very high flow < Q5
+gav$rsr_Q05 <- gav$fdc_sim[gav$fdc_sim$p<0.05,]%>% # Subset matrix with a prob. of exceedence
+  map_dbl(., ~rsr(.,gav$fdc$Q_m3_s[gav$fdc$p<0.05]))# Subset obs with a prob. of exceedence
+
+# High flows Q5-Q20
+gav$rsr_Q5_20 <- gav$fdc_sim[gav$fdc_sim$p>0.05 & gav$fdc_sim$p<0.20,]%>% # Subset matrix with a prob. of exceedence
+  map_dbl(., ~rsr(.,gav$fdc$Q_m3_s[gav$fdc$p>0.05 & gav$fdc$p<0.20]))# Subset obs with a prob. of exceedence
+
+# Mid flow Q20-Q70
+gav$rsr_Q20_70 <- gav$fdc_sim[gav$fdc_sim$p>0.20 & gav$fdc_sim$p<0.70,]%>% # Subset matrix with a prob. of exceedence
+  map_dbl(., ~rsr(.,gav$fdc$Q_m3_s[gav$fdc$p>0.20 & gav$fdc$p<0.70]))# Subset obs with a prob. of exceedence
+
+#Low flow Q70 -Q95
+gav$rsr_Q70_95 <- gav$fdc_sim[gav$fdc_sim$p>0.70 & gav$fdc_sim$p<0.95,]%>% # Subset matrix with a prob. of exceedence
+  map_dbl(., ~rsr(.,gav$fdc$Q_m3_s[gav$fdc$p>0.70 & gav$fdc$p<0.95]))# Subset obs with a prob. of exceedence
+
+# Very low flow > Q95
 gav$rsr_Q95 <- gav$fdc_sim[gav$fdc_sim$p>0.95,]%>% # Subset matrix with a prob. of exceedence
   map_dbl(., ~rsr(.,gav$fdc$Q_m3_s[gav$fdc$p>0.95]))# Subset obs with a prob. of exceedence
 
+
 ```
 
-#Select the best parameter sets according to NSE
+#Select the best parameter sets according to KGE and 5 signature metrics
 
 ```{r}
 bestpar <-  list()
@@ -136,6 +208,17 @@ bestpar <-  list()
 bestpar$best25 <- sim_pwn$parameter$values[c(order(gav$nse, decreasing = T)[1:20]),]%>%
   mutate(sim = order(gav$nse, decreasing=T)[1:20])
 
+#Selecting the best parameter sets
+bestpar$best <- sim_pwn$parameter$values[c(
+  Reduce(intersect, list(
+  order(gav$rsr_Q05, decreasing=F)[1:up], #RSR min values are better
+  order(gav$rsr_Q5_20, decreasing=F)[1:up],
+  order(gav$rsr_Q20_70, decreasing=F)[1:up],
+  order(gav$rsr_Q70_95, decreasing=F)[1:up],
+  order(gav$rsr_Q95, decreasing=F)[1:up],
+  order(gav$kge, decreasing=T)[1:up] #KGE larger values are better
+))
+),]
 
 #Correlation between parameters
 library(corrplot)
@@ -154,7 +237,7 @@ bestpar$bestsims <- data.frame(gav$sim_pwn[c(0,order(gav$rsr_Q95, decreasing=F)[
   melt(.,  id.vars = 'date', variable.name = 'series')
 
 ggplot(bestpar$bestsims, aes(date,value)) + geom_line(aes(colour = "series"))+
-  geom_line(data=gav$sim_pwn, aes(date, run_0563, colour ="best sim"))+
+  geom_line(data=gav$sim_pwn, aes(date, run_1233, colour ="best sim"))+
   geom_line(data=gav$obs, aes(Date, Q_m3_s))
 
 
@@ -164,8 +247,6 @@ bestpar$simsgav <- data.frame(gav$sim_pwn[c(order(gav$rsr_Q95, decreasing=F)[1:3
   data.frame(.)%>%
   mutate(p = seq(0,1, length.out = nrow(.)))%>%
   melt(.,  id.vars = 'p', variable.name = 'series') #To long dataframe
-
-
 
 ggplot(bestpar$simsgav, aes(p,value)) + geom_line(aes(colour = "series")) + 
   geom_line(data=gav$fdc, aes(p, Q_m3_s))+
@@ -178,27 +259,65 @@ ggplot(bestpar$simsgav, aes(p,value)) + geom_line(aes(colour = "series")) +
 
 ```{r}
 
-print(order(gav$rsr_Q95, decreasing=F)[1:300])  # The highest 10 percentile of simulations in terms of RSR_Q95
+up <- 2000
 
-print(order(gav$kge, decreasing=T)[1:300])  # The highest 10 percentile of simulations in terms of KGE
+print(
+Reduce(intersect, list(
+  order(gav$rsr_Q05, decreasing=F)[1:up], #RSR min values are better
+  order(gav$rsr_Q5_20, decreasing=F)[1:up],
+  order(gav$rsr_Q20_70, decreasing=F)[1:up],
+  order(gav$rsr_Q70_95, decreasing=F)[1:up],
+  order(gav$rsr_Q95, decreasing=F)[1:up],
+  order(gav$kge, decreasing=T)[1:up] #KGE larger values are better
+))
+)
+
+#Timeseries
+
+bestpar$bestsims <- data.frame(gav$sim_pwn[c(0,
+                                             Reduce(intersect, list(
+                                                 order(gav$rsr_Q05, decreasing=F)[1:up], #Very high flows
+                                                 order(gav$rsr_Q5_20, decreasing=F)[1:up],
+                                                 order(gav$rsr_Q20_70, decreasing=F)[1:up],
+                                                 order(gav$rsr_Q70_95, decreasing=F)[1:up],
+                                                 order(gav$rsr_Q95, decreasing=F)[1:up], #Very low flows
+                                                 order(gav$kge, decreasing=T)[1:up] #KGE larger values are better
+                                                 ))
+                                             )+1])%>%# Including date 1
+  melt(.,  id.vars = 'date', variable.name = 'series')
 
 
-print(intersect(order(gav$rsr_Q95, decreasing=F)[1:750],order(gav$kge, decreasing=T)[1:750]))
+ggplot(bestpar$bestsims, aes(date,value)) + geom_line(aes(colour = "series"))+
+  geom_line(data=gav$sim_pwn, aes(date, run_1233, colour ="best sim"))+
+  geom_line(data=gav$obs, aes(Date, Q_m3_s))
+
 
 #fdc  
-bestpar$simsgav <- data.frame(gav$sim_pwn[c(intersect(order(gav$rsr_Q95, decreasing=F)[1:750],order(gav$kge, decreasing=T)[1:750]))+1])%>%
+bestpar$simsgav <- data.frame(gav$sim_pwn[c(
+  Reduce(intersect, list(
+  order(gav$rsr_Q05, decreasing=F)[1:up], #Very high flows
+  order(gav$rsr_Q5_20, decreasing=F)[1:up],
+  order(gav$rsr_Q20_70, decreasing=F)[1:up],
+  order(gav$rsr_Q70_95, decreasing=F)[1:up],
+  order(gav$rsr_Q95, decreasing=F)[1:up], #Very low flows
+  order(gav$kge, decreasing=T)[1:up] #KGE larger values are better
+  ))
+  )+1])%>%
   lapply(., sort, decreasing=T)%>%
   data.frame(.)%>%
   mutate(p = seq(0,1, length.out = nrow(.)))%>%
   melt(.,  id.vars = 'p', variable.name = 'series') #To long dataframe
 
 
-ggplot(bestpar$simsgav, aes(p,value)) + geom_line(aes(colour = "series")) + 
+ggplot(bestpar$simsgav, aes(p,value)) + geom_line(aes(colour = series)) + 
   geom_line(data=gav$fdc, aes(p, Q_m3_s))+
   scale_y_continuous(trans="log2")
 
 
+print(c("R^2 = ", (cor(gav$sim_pwn$run_1233, gav$obs$Q_m3_s))^2,
+          "NSE = ", NSE(gav$sim_pwn$run_1233, gav$obs$Q_m3_s),
+          "KGE = ", KGE(gav$sim_pwn$run_1233, gav$obs$Q_m3_s),
+          "PBIAS = ", pbias(gav$sim_pwn$run_1233, gav$obs$Q_m3_s)))
 
 ```
-
 
